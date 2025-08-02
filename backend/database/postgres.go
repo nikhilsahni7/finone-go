@@ -49,6 +49,7 @@ func RunPostgresMigrations() error {
 	migrationFiles := []string{
 		"migrations/001_postgres_schema.sql",
 		"migrations/003_user_sessions.sql",
+		"migrations/004_system_logs.sql",
 	}
 
 	for _, file := range migrationFiles {

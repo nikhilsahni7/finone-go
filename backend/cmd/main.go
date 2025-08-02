@@ -9,6 +9,7 @@ import (
 	"finone-search-system/database"
 	"finone-search-system/handlers"
 	"finone-search-system/middleware"
+	"finone-search-system/services"
 	"finone-search-system/utils"
 
 	"github.com/gin-gonic/gin"
@@ -46,6 +47,13 @@ func main() {
 	if err := database.RunClickHouseMigrations(); err != nil {
 		log.Fatalf("Failed to run ClickHouse migrations: %v", err)
 	}
+
+	// Start the daily reset scheduler
+	utils.LogInfo("Starting background schedulers...")
+	schedulerService := services.NewSchedulerService()
+	schedulerService.StartDailyResetScheduler()
+	schedulerService.StartWeeklyCleanup()
+	utils.LogInfo("Background schedulers started successfully")
 
 	// Setup Gin router
 	router := setupRouter()
@@ -142,6 +150,10 @@ func setupRouter() *gin.Engine {
 				admin.GET("/users/:id/sessions", userHandler.GetUserSessions)
 				admin.DELETE("/users/:id/sessions", userHandler.InvalidateUserSessions)
 				admin.POST("/sessions/cleanup", userHandler.CleanupExpiredSessions)
+
+				// Daily reset management
+				admin.POST("/reset/daily-search-counts", userHandler.ResetDailySearchCounts)
+				admin.GET("/reset/next-reset-time", userHandler.GetNextResetTime)
 
 				// CSV import
 				admin.POST("/import/csv", searchHandler.ImportCSV)

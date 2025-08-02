@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
 	"finone-search-system/config"
 	"finone-search-system/database"
 	"finone-search-system/models"
 	"finone-search-system/utils"
-
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"finone-search-system/models"
 	"finone-search-system/services"
@@ -284,4 +285,33 @@ func (h *UserHandler) CleanupExpiredSessions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Expired sessions cleaned up successfully"})
+}
+
+// ResetDailySearchCounts handles manual reset of daily search counts (admin only)
+func (h *UserHandler) ResetDailySearchCounts(c *gin.Context) {
+	schedulerService := services.NewSchedulerService()
+
+	err := schedulerService.ManualReset()
+	if err != nil {
+		utils.LogError("Failed to reset daily search counts", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reset daily search counts"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"message": "Daily search counts reset successfully",
+		"note":    "All users' daily search counts have been reset to 0",
+	})
+}
+
+// GetNextResetTime returns when the next automatic reset will occur (admin only)
+func (h *UserHandler) GetNextResetTime(c *gin.Context) {
+	schedulerService := services.NewSchedulerService()
+	nextReset := schedulerService.GetNextResetTime()
+
+	c.JSON(http.StatusOK, gin.H{
+		"next_reset_time":  nextReset.Format("2006-01-02 15:04:05 IST"),
+		"next_reset_unix":  nextReset.Unix(),
+		"time_until_reset": time.Until(nextReset).String(),
+	})
 }
