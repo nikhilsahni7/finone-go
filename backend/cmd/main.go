@@ -137,6 +137,12 @@ func setupRouter() *gin.Engine {
 				admin.PUT("/users/:id", userHandler.UpdateUser)
 				admin.GET("/analytics", userHandler.GetUserAnalytics)
 
+				// Session management
+				admin.GET("/sessions", userHandler.GetAllActiveSessions)
+				admin.GET("/users/:id/sessions", userHandler.GetUserSessions)
+				admin.DELETE("/users/:id/sessions", userHandler.InvalidateUserSessions)
+				admin.POST("/sessions/cleanup", userHandler.CleanupExpiredSessions)
+
 				// CSV import
 				admin.POST("/import/csv", searchHandler.ImportCSV)
 				admin.POST("/import/csv-path", searchHandler.ImportCSVFromPath)

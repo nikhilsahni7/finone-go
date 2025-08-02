@@ -60,6 +60,19 @@ type DailyUsage struct {
 	ExportCount int       `json:"export_count" db:"export_count"`
 }
 
+// UserSession represents an active user session
+type UserSession struct {
+	ID           uuid.UUID  `json:"id" db:"id"`
+	UserID       uuid.UUID  `json:"user_id" db:"user_id"`
+	SessionToken string     `json:"-" db:"session_token"` // Hash of JWT token
+	CreatedAt    time.Time  `json:"created_at" db:"created_at"`
+	ExpiresAt    time.Time  `json:"expires_at" db:"expires_at"`
+	IsActive     bool       `json:"is_active" db:"is_active"`
+	IPAddress    string     `json:"ip_address" db:"ip_address"`
+	UserAgent    string     `json:"user_agent" db:"user_agent"`
+	LoggedOutAt  *time.Time `json:"logged_out_at" db:"logged_out_at"`
+}
+
 // LoginRequest represents the login request payload
 type LoginRequest struct {
 	Email    string `json:"email" validate:"required,email"`
@@ -71,6 +84,7 @@ type LoginResponse struct {
 	Token     string    `json:"token"`
 	User      User      `json:"user"`
 	ExpiresAt time.Time `json:"expires_at"`
+	SessionID string    `json:"session_id"`
 }
 
 // CreateUserRequest represents the create user request payload

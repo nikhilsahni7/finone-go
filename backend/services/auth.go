@@ -1,6 +1,7 @@
 package services
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"strings"
 	"time"
@@ -21,7 +22,7 @@ func NewAuthService() *AuthService {
 	return &AuthService{}
 }
 
-// Login authenticates a user and returns a JWT token
+// Login authenticates a user and returns a JWT token with session management
 func (s *AuthService) Login(email, password string) (*models.LoginResponse, error) {
 	var user models.User
 	query := `SELECT * FROM users WHERE email = $1 AND is_active = true`
@@ -50,6 +51,13 @@ func (s *AuthService) Login(email, password string) (*models.LoginResponse, erro
 		return nil, fmt.Errorf("failed to generate token")
 	}
 
+	// Create session record
+	sessionID, err := s.createSession(user.ID, token, expiresAt, "127.0.0.1", "")
+	if err != nil {
+		utils.LogError("Failed to create session", err)
+		return nil, fmt.Errorf("failed to create session")
+	}
+
 	// Log the login
 	s.logLogin(user.ID, "127.0.0.1", "")
 
@@ -60,6 +68,7 @@ func (s *AuthService) Login(email, password string) (*models.LoginResponse, erro
 		Token:     token,
 		User:      user,
 		ExpiresAt: expiresAt,
+		SessionID: sessionID.String(),
 	}, nil
 }
 
@@ -257,6 +266,7 @@ func (s *AuthService) generateJWT(userID, email, role string) (string, time.Time
 		"role":    role,
 		"exp":     expiresAt.Unix(),
 		"iat":     time.Now().Unix(),
+		"jti":     uuid.New().String(), // JWT ID for uniqueness
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -286,6 +296,167 @@ func (s *AuthService) ValidateJWT(tokenString string) (jwt.MapClaims, error) {
 	}
 
 	return nil, fmt.Errorf("invalid token")
+}
+
+// createSession creates a new session record in the database
+func (s *AuthService) createSession(userID uuid.UUID, token string, expiresAt time.Time, ipAddress, userAgent string) (uuid.UUID, error) {
+	// Generate session ID
+	sessionID := uuid.New()
+
+	// Create hash of the token for storage (for security)
+	tokenHash := s.hashToken(token)
+
+	query := `INSERT INTO user_sessions (id, user_id, session_token, created_at, expires_at, is_active, ip_address, user_agent)
+			  VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`
+
+	_, err := database.PostgresDB.Exec(query, sessionID, userID, tokenHash, time.Now(), expiresAt, true, ipAddress, userAgent)
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("failed to create session: %w", err)
+	}
+
+	return sessionID, nil
+}
+
+// validateSession validates both JWT token and session status
+func (s *AuthService) ValidateSession(tokenString string) (*models.User, error) {
+	// First validate the JWT token
+	claims, err := s.ValidateJWT(tokenString)
+	if err != nil {
+		return nil, fmt.Errorf("invalid token: %w", err)
+	}
+
+	userIDStr, ok := claims["user_id"].(string)
+	if !ok {
+		return nil, fmt.Errorf("invalid token claims")
+	}
+
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		return nil, fmt.Errorf("invalid user ID in token")
+	}
+
+	// Check if session exists and is active
+	tokenHash := s.hashToken(tokenString)
+	var session models.UserSession
+	sessionQuery := `SELECT * FROM user_sessions WHERE session_token = $1 AND user_id = $2 AND is_active = true AND expires_at > now() AND logged_out_at IS NULL`
+
+	err = database.PostgresDB.Get(&session, sessionQuery, tokenHash, userID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid or expired session")
+	}
+
+	// Get user details and verify user is still active
+	var user models.User
+	userQuery := `SELECT * FROM users WHERE id = $1 AND is_active = true`
+	err = database.PostgresDB.Get(&user, userQuery, userID)
+	if err != nil {
+		return nil, fmt.Errorf("user not found or inactive")
+	}
+
+	// Check if user has expired (for DEMO users)
+	if user.ExpiresAt != nil && user.ExpiresAt.Before(time.Now()) {
+		return nil, fmt.Errorf("user account has expired")
+	}
+
+	// Remove sensitive data
+	user.PasswordHash = ""
+
+	return &user, nil
+}
+
+// invalidateSession invalidates a session (logout)
+func (s *AuthService) InvalidateSession(tokenString string, userID uuid.UUID) error {
+	tokenHash := s.hashToken(tokenString)
+
+	query := `UPDATE user_sessions
+			  SET is_active = false, logged_out_at = now()
+			  WHERE session_token = $1 AND user_id = $2 AND is_active = true`
+
+	result, err := database.PostgresDB.Exec(query, tokenHash, userID)
+	if err != nil {
+		return fmt.Errorf("failed to invalidate session: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to check session invalidation: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("session not found or already invalidated")
+	}
+
+	return nil
+}
+
+// invalidateAllUserSessions invalidates all sessions for a user (useful for admin actions)
+func (s *AuthService) InvalidateAllUserSessions(userID uuid.UUID) error {
+	query := `UPDATE user_sessions
+			  SET is_active = false, logged_out_at = now()
+			  WHERE user_id = $1 AND is_active = true`
+
+	_, err := database.PostgresDB.Exec(query, userID)
+	if err != nil {
+		return fmt.Errorf("failed to invalidate user sessions: %w", err)
+	}
+
+	return nil
+}
+
+// cleanupExpiredSessions removes old expired sessions from database
+func (s *AuthService) CleanupExpiredSessions() error {
+	query := `DELETE FROM user_sessions
+			  WHERE expires_at < now() OR (logged_out_at IS NOT NULL AND logged_out_at < now() - INTERVAL '7 days')`
+
+	result, err := database.PostgresDB.Exec(query)
+	if err != nil {
+		return fmt.Errorf("failed to cleanup expired sessions: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err == nil {
+		utils.LogInfo(fmt.Sprintf("Cleaned up %d expired sessions", rowsAffected))
+	}
+
+	return nil
+}
+
+// hashToken creates a SHA256 hash of the token for secure storage
+func (s *AuthService) hashToken(token string) string {
+	hash := sha256.Sum256([]byte(token))
+	return fmt.Sprintf("%x", hash)
+}
+
+// GetUserSessions returns active sessions for a user (admin function)
+func (s *AuthService) GetUserSessions(userID uuid.UUID) ([]models.UserSession, error) {
+	var sessions []models.UserSession
+	query := `SELECT id, user_id, created_at, expires_at, is_active, ip_address, user_agent, logged_out_at
+			  FROM user_sessions
+			  WHERE user_id = $1
+			  ORDER BY created_at DESC`
+
+	err := database.PostgresDB.Select(&sessions, query, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user sessions: %w", err)
+	}
+
+	return sessions, nil
+}
+
+// GetAllActiveSessions returns all active sessions (admin function)
+func (s *AuthService) GetAllActiveSessions() ([]models.UserSession, error) {
+	var sessions []models.UserSession
+	query := `SELECT s.id, s.user_id, s.created_at, s.expires_at, s.is_active, s.ip_address, s.user_agent, s.logged_out_at
+			  FROM user_sessions s
+			  WHERE s.is_active = true AND s.expires_at > now() AND s.logged_out_at IS NULL
+			  ORDER BY s.created_at DESC`
+
+	err := database.PostgresDB.Select(&sessions, query)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get active sessions: %w", err)
+	}
+
+	return sessions, nil
 }
 
 // logLogin logs a user login

@@ -152,20 +152,39 @@ func (h *UserHandler) GetProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, user)
 }
 
-// Logout handles user logout (invalidates token client-side)
+// Logout handles user logout (invalidates session)
 func (h *UserHandler) Logout(c *gin.Context) {
-	// JWT is stateless, so logout is handled client-side by removing the token
-	// We just log the logout event
 	userIDStr, exists := c.Get("user_id")
-	if exists {
-		if userID, err := uuid.Parse(userIDStr.(string)); err == nil {
-			utils.LogInfo(fmt.Sprintf("User logged out: %s", userID.String()))
-		}
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User not authenticated"})
+		return
 	}
+
+	tokenString, tokenExists := c.Get("token")
+	if !tokenExists {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Token not found in context"})
+		return
+	}
+
+	userID, err := uuid.Parse(userIDStr.(string))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Invalidate the session
+	err = h.authService.InvalidateSession(tokenString.(string), userID)
+	if err != nil {
+		utils.LogError("Failed to invalidate session", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to logout", "details": err.Error()})
+		return
+	}
+
+	utils.LogInfo(fmt.Sprintf("User logged out: %s", userID.String()))
 
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Logged out successfully",
-		"note":    "Please remove the token from client storage"})
+		"note":    "Session has been invalidated on the server"})
 }
 
 // GetUserAnalytics handles retrieving user analytics (admin only)
@@ -202,4 +221,67 @@ func (h *UserHandler) GetMyAnalytics(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, analytics)
+}
+
+// GetUserSessions handles retrieving user sessions (admin only)
+func (h *UserHandler) GetUserSessions(c *gin.Context) {
+	userIDStr := c.Param("id")
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	sessions, err := h.authService.GetUserSessions(userID)
+	if err != nil {
+		utils.LogError("Failed to get user sessions", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve sessions"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"sessions": sessions})
+}
+
+// GetAllActiveSessions handles retrieving all active sessions (admin only)
+func (h *UserHandler) GetAllActiveSessions(c *gin.Context) {
+	sessions, err := h.authService.GetAllActiveSessions()
+	if err != nil {
+		utils.LogError("Failed to get active sessions", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve sessions"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"sessions": sessions})
+}
+
+// InvalidateUserSessions handles invalidating all sessions for a user (admin only)
+func (h *UserHandler) InvalidateUserSessions(c *gin.Context) {
+	userIDStr := c.Param("id")
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	err = h.authService.InvalidateAllUserSessions(userID)
+	if err != nil {
+		utils.LogError("Failed to invalidate user sessions", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to invalidate sessions"})
+		return
+	}
+
+	utils.LogInfo(fmt.Sprintf("Admin invalidated all sessions for user: %s", userID.String()))
+	c.JSON(http.StatusOK, gin.H{"message": "All user sessions invalidated successfully"})
+}
+
+// CleanupExpiredSessions handles cleanup of expired sessions (admin only)
+func (h *UserHandler) CleanupExpiredSessions(c *gin.Context) {
+	err := h.authService.CleanupExpiredSessions()
+	if err != nil {
+		utils.LogError("Failed to cleanup expired sessions", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to cleanup sessions"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Expired sessions cleaned up successfully"})
 }

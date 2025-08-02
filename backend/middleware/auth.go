@@ -9,7 +9,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// AuthMiddleware validates JWT tokens
+// AuthMiddleware validates JWT tokens and sessions
 func AuthMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
@@ -27,17 +27,19 @@ func AuthMiddleware() gin.HandlerFunc {
 		}
 
 		authService := services.NewAuthService()
-		claims, err := authService.ValidateJWT(tokenString)
+		user, err := authService.ValidateSession(tokenString)
 		if err != nil {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token"})
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid session", "details": err.Error()})
 			c.Abort()
 			return
 		}
 
 		// Store user information in context
-		c.Set("user_id", claims["user_id"])
-		c.Set("email", claims["email"])
-		c.Set("role", claims["role"])
+		c.Set("user_id", user.ID.String())
+		c.Set("email", user.Email)
+		c.Set("role", user.Role)
+		c.Set("user", user)         // Store full user object for convenience
+		c.Set("token", tokenString) // Store token for logout
 
 		c.Next()
 	}

@@ -16,7 +16,7 @@ var PostgresDB *sqlx.DB
 
 func InitPostgres() error {
 	connectionString := config.AppConfig.GetPostgresConnectionString()
-	
+
 	db, err := sqlx.Connect("postgres", connectionString)
 	if err != nil {
 		return fmt.Errorf("failed to connect to PostgreSQL: %w", err)
@@ -48,6 +48,7 @@ func ClosePostgres() error {
 func RunPostgresMigrations() error {
 	migrationFiles := []string{
 		"migrations/001_postgres_schema.sql",
+		"migrations/003_user_sessions.sql",
 	}
 
 	for _, file := range migrationFiles {
