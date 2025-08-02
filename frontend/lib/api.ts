@@ -7,6 +7,57 @@ export interface ApiResponse<T = any> {
   message?: string;
 }
 
+export interface SearchRequest {
+  query: string;
+  fields?: string[];
+  logic?: "AND" | "OR";
+  match_type?: "partial" | "full";
+  limit?: number;
+  offset?: number;
+  search_within?: boolean;
+}
+
+export interface SearchResponse {
+  results: any[];
+  total_count: number;
+  execution_time_ms: number;
+  search_id: string;
+  has_more: boolean;
+}
+
+export interface SearchWithinRequest {
+  search_id: string;
+  query: string;
+  fields?: string[];
+  match_type?: "partial" | "full";
+  limit?: number;
+  offset?: number;
+}
+
+export interface UserProfile {
+  id: string;
+  name: string;
+  email: string;
+  role: string;
+  user_type: string;
+  max_searches_per_day: number;
+  today_searches: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UserAnalytics {
+  user_id: string;
+  name: string;
+  email: string;
+  total_searches: number;
+  today_searches: number;
+  total_exports: number;
+  today_exports: number;
+  last_login?: string;
+  last_search_time?: string;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -57,19 +108,46 @@ export async function logout() {
   });
 }
 
-export async function getProfile() {
+export async function getProfile(): Promise<UserProfile> {
   return apiCall("/api/v1/users/profile");
 }
 
-export async function search(query: any) {
+export async function getMyAnalytics(): Promise<UserAnalytics> {
+  return apiCall("/api/v1/users/analytics");
+}
+
+export async function search(query: SearchRequest): Promise<SearchResponse> {
   return apiCall("/api/v1/search/", {
     method: "POST",
     body: JSON.stringify(query),
   });
 }
 
+export async function searchWithin(
+  request: SearchWithinRequest
+): Promise<SearchResponse> {
+  return apiCall("/api/v1/search/within", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
 export async function getSearchStats() {
   return apiCall("/api/v1/search/stats");
+}
+
+export async function exportSearchResults(
+  searchId: string,
+  format: "csv" | "json" = "csv"
+) {
+  return apiCall("/api/v1/search/export", {
+    method: "POST",
+    body: JSON.stringify({
+      search_id: searchId,
+      format: format,
+      file_name: `search_results_${Date.now()}.${format}`,
+    }),
+  });
 }
 
 export function isAuthenticated(): boolean {

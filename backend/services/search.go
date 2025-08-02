@@ -413,17 +413,35 @@ func (s *SearchService) logSearchPerformance(queryID, userID, queryText string, 
 func (s *SearchService) SearchWithin(userID uuid.UUID, req *models.SearchWithinRequest) (*models.SearchResponse, error) {
 	startTime := time.Now()
 
+	// Parse the search_id string to UUID
+	originalSearchID, err := uuid.Parse(req.SearchID)
+	if err != nil {
+		return nil, fmt.Errorf("invalid search ID: %w", err)
+	}
+
 	// First, get the original search results from PostgreSQL
 	var originalSearch models.Search
 	query := `SELECT * FROM searches WHERE id = $1 AND user_id = $2`
-	err := database.PostgresDB.Get(&originalSearch, query, req.SearchID, userID)
+	err = database.PostgresDB.Get(&originalSearch, query, originalSearchID, userID)
 	if err != nil {
 		return nil, fmt.Errorf("original search not found: %w", err)
 	}
 
 	// Extract the original search parameters
 	var originalReq models.SearchRequest
-	queryData, _ := json.Marshal(originalSearch.SearchQuery)
+
+	// Handle the SearchQuery which is stored as interface{} in JSONB
+	var queryData []byte
+	switch v := originalSearch.SearchQuery.(type) {
+	case []byte:
+		queryData = v
+	case string:
+		queryData = []byte(v)
+	default:
+		// Try to marshal and then unmarshal
+		queryData, _ = json.Marshal(originalSearch.SearchQuery)
+	}
+
 	if err := json.Unmarshal(queryData, &originalReq); err != nil {
 		return nil, fmt.Errorf("failed to parse original search: %w", err)
 	}
@@ -452,7 +470,7 @@ func (s *SearchService) SearchWithin(userID uuid.UUID, req *models.SearchWithinR
 	}
 
 	executionTime := int(time.Since(startTime).Milliseconds())
-	searchID := uuid.New().String()
+	newSearchID := uuid.New().String()
 
 	// Log the search within operation
 	searchWithinReq := models.SearchRequest{
@@ -462,13 +480,13 @@ func (s *SearchService) SearchWithin(userID uuid.UUID, req *models.SearchWithinR
 		Limit:     req.Limit,
 		Offset:    req.Offset,
 	}
-	s.logSearch(userID, &searchWithinReq, len(results), executionTime, searchID)
+	s.logSearch(userID, &searchWithinReq, len(results), executionTime, newSearchID)
 
 	return &models.SearchResponse{
 		Results:       results,
 		TotalCount:    totalCount,
 		ExecutionTime: executionTime,
-		SearchID:      searchID,
+		SearchID:      newSearchID,
 		HasMore:       (req.Offset + len(results)) < totalCount,
 	}, nil
 }

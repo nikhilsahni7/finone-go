@@ -179,3 +179,27 @@ func (h *UserHandler) GetUserAnalytics(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"analytics": analytics})
 }
+
+// GetMyAnalytics handles retrieving current user's analytics
+func (h *UserHandler) GetMyAnalytics(c *gin.Context) {
+	userIDStr, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+
+	userID, err := uuid.Parse(userIDStr.(string))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	analytics, err := h.authService.GetUserAnalyticsByID(userID)
+	if err != nil {
+		utils.LogError("Failed to get user analytics", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve analytics"})
+		return
+	}
+
+	c.JSON(http.StatusOK, analytics)
+}

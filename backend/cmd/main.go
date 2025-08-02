@@ -112,6 +112,7 @@ func setupRouter() *gin.Engine {
 			users := protected.Group("/users")
 			{
 				users.GET("/profile", userHandler.GetProfile)
+				users.GET("/analytics", userHandler.GetMyAnalytics)
 				users.POST("/logout", userHandler.Logout)
 			}
 

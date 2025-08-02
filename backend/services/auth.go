@@ -384,3 +384,56 @@ func (s *AuthService) GetUserAnalytics() ([]models.UserAnalytics, error) {
 	err := database.PostgresDB.Select(&analytics, query, today)
 	return analytics, err
 }
+
+// GetUserAnalyticsByID returns analytics for a specific user
+func (s *AuthService) GetUserAnalyticsByID(userID uuid.UUID) (*models.UserAnalytics, error) {
+	istNow := time.Now().Add(5*time.Hour + 30*time.Minute)
+	today := istNow.Format("2006-01-02")
+
+	query := `
+	SELECT
+		u.id as user_id,
+		u.name,
+		u.email,
+		COALESCE(total_searches.count, 0) as total_searches,
+		COALESCE(today_usage.search_count, 0) as today_searches,
+		COALESCE(total_exports.count, 0) as total_exports,
+		COALESCE(today_usage.export_count, 0) as today_exports,
+		last_login.login_time as last_login,
+		last_search.search_time as last_search_time
+	FROM users u
+	LEFT JOIN (
+		SELECT user_id, COUNT(*) as count
+		FROM searches
+		GROUP BY user_id
+	) total_searches ON u.id = total_searches.user_id
+	LEFT JOIN (
+		SELECT user_id, COUNT(*) as count
+		FROM exports
+		GROUP BY user_id
+	) total_exports ON u.id = total_exports.user_id
+	LEFT JOIN (
+		SELECT user_id, search_count, export_count
+		FROM daily_usage
+		WHERE date = $1
+	) today_usage ON u.id = today_usage.user_id
+	LEFT JOIN (
+		SELECT user_id, MAX(login_time) as login_time
+		FROM logins
+		GROUP BY user_id
+	) last_login ON u.id = last_login.user_id
+	LEFT JOIN (
+		SELECT user_id, MAX(search_time) as search_time
+		FROM searches
+		GROUP BY user_id
+	) last_search ON u.id = last_search.user_id
+	WHERE u.id = $2`
+
+	var analytics models.UserAnalytics
+	err := database.PostgresDB.Get(&analytics, query, today, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get user analytics: %w", err)
+	}
+
+	return &analytics, nil
+}

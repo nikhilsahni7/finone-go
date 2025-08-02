@@ -106,15 +106,15 @@ type UserListResponse struct {
 
 // UserAnalytics represents user analytics for admin
 type UserAnalytics struct {
-	UserID         uuid.UUID  `json:"user_id"`
-	Name           string     `json:"name"`
-	Email          string     `json:"email"`
-	TotalSearches  int        `json:"total_searches"`
-	TodaySearches  int        `json:"today_searches"`
-	TotalExports   int        `json:"total_exports"`
-	TodayExports   int        `json:"today_exports"`
-	LastLogin      *time.Time `json:"last_login"`
-	LastSearchTime *time.Time `json:"last_search_time"`
+	UserID         uuid.UUID  `json:"user_id" db:"user_id"`
+	Name           string     `json:"name" db:"name"`
+	Email          string     `json:"email" db:"email"`
+	TotalSearches  int        `json:"total_searches" db:"total_searches"`
+	TodaySearches  int        `json:"today_searches" db:"today_searches"`
+	TotalExports   int        `json:"total_exports" db:"total_exports"`
+	TodayExports   int        `json:"today_exports" db:"today_exports"`
+	LastLogin      *time.Time `json:"last_login" db:"last_login"`
+	LastSearchTime *time.Time `json:"last_search_time" db:"last_search_time"`
 }
 
 // SearchWithinRequest represents search within previous results
