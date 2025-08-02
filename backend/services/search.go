@@ -3,13 +3,12 @@ package services
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"strings"
-	"time"
-
 	"finone-search-system/database"
 	"finone-search-system/models"
 	"finone-search-system/utils"
+	"fmt"
+	"strings"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -136,16 +135,16 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 	// Default search across all fields if no specific fields provided
 	if len(conditions) == 0 {
 		if req.MatchType == "full" {
-			condition := "(mobile = ? OR name = ? OR fname = ? OR address = ? OR alt = ? OR circle = ? OR email = ?)"
+			condition := "(mobile = ? OR name = ? OR fname = ? OR address = ? OR alt = ? OR circle = ? OR email = ? OR master_id = ?)"
 			conditions = append(conditions, condition)
-			for i := 0; i < 7; i++ {
+			for i := 0; i < 8; i++ {
 				args = append(args, req.Query)
 			}
 		} else {
-			condition := "(lower(mobile) LIKE lower(?) OR lower(name) LIKE lower(?) OR lower(fname) LIKE lower(?) OR lower(address) LIKE lower(?) OR lower(alt) LIKE lower(?) OR lower(circle) LIKE lower(?) OR lower(email) LIKE lower(?))"
+			condition := "(lower(mobile) LIKE lower(?) OR lower(name) LIKE lower(?) OR lower(fname) LIKE lower(?) OR lower(address) LIKE lower(?) OR lower(alt) LIKE lower(?) OR lower(circle) LIKE lower(?) OR lower(email) LIKE lower(?) OR lower(master_id) LIKE lower(?))"
 			conditions = append(conditions, condition)
 			queryWithWildcard := "%" + req.Query + "%"
-			for i := 0; i < 7; i++ {
+			for i := 0; i < 8; i++ {
 				args = append(args, queryWithWildcard)
 			}
 		}
@@ -230,16 +229,16 @@ func (s *SearchService) getTotalCount(req *models.SearchRequest, ctx context.Con
 	// Default search across all fields if no specific fields provided
 	if len(conditions) == 0 {
 		if req.MatchType == "full" {
-			condition := "(mobile = ? OR name = ? OR fname = ? OR address = ? OR alt = ? OR circle = ? OR email = ?)"
+			condition := "(mobile = ? OR name = ? OR fname = ? OR address = ? OR alt = ? OR circle = ? OR email = ? OR master_id = ?)"
 			conditions = append(conditions, condition)
-			for i := 0; i < 7; i++ {
+			for i := 0; i < 8; i++ {
 				args = append(args, req.Query)
 			}
 		} else {
-			condition := "(lower(mobile) LIKE lower(?) OR lower(name) LIKE lower(?) OR lower(fname) LIKE lower(?) OR lower(address) LIKE lower(?) OR lower(alt) LIKE lower(?) OR lower(circle) LIKE lower(?) OR lower(email) LIKE lower(?))"
+			condition := "(lower(mobile) LIKE lower(?) OR lower(name) LIKE lower(?) OR lower(fname) LIKE lower(?) OR lower(address) LIKE lower(?) OR lower(alt) LIKE lower(?) OR lower(circle) LIKE lower(?) OR lower(email) LIKE lower(?) OR lower(master_id) LIKE lower(?))"
 			conditions = append(conditions, condition)
 			queryWithWildcard := "%" + req.Query + "%"
-			for i := 0; i < 7; i++ {
+			for i := 0; i < 8; i++ {
 				args = append(args, queryWithWildcard)
 			}
 		}
@@ -270,7 +269,28 @@ func (s *SearchService) getSearchWithinTotalCount(originalReq *models.SearchRequ
 	args := []interface{}{}
 
 	// Handle original request fields and query
-	if len(originalReq.Fields) > 0 {
+	if len(originalReq.FieldQueries) > 0 {
+		// Field-specific search: each field has its own query value
+		for field, value := range originalReq.FieldQueries {
+			if !s.isValidField(field) {
+				continue
+			}
+			if strings.TrimSpace(value) == "" {
+				continue
+			}
+
+			var condition string
+			if originalReq.MatchType == "full" {
+				condition = fmt.Sprintf("%s = ?", field)
+				args = append(args, value)
+			} else {
+				condition = fmt.Sprintf("lower(%s) LIKE lower(?)", field)
+				args = append(args, "%"+value+"%")
+			}
+			originalConditions = append(originalConditions, condition)
+		}
+	} else if len(originalReq.Fields) > 0 {
+		// Legacy method: single query across multiple fields
 		for _, field := range originalReq.Fields {
 			if !s.isValidField(field) {
 				continue
@@ -289,16 +309,16 @@ func (s *SearchService) getSearchWithinTotalCount(originalReq *models.SearchRequ
 	} else {
 		// Default search across all text fields for original query
 		if originalReq.MatchType == "full" {
-			condition := "(mobile = ? OR name = ? OR fname = ? OR address = ? OR alt = ? OR circle = ? OR email = ?)"
+			condition := "(mobile = ? OR name = ? OR fname = ? OR address = ? OR alt = ? OR circle = ? OR email = ? OR master_id = ?)"
 			originalConditions = append(originalConditions, condition)
-			for i := 0; i < 7; i++ {
+			for i := 0; i < 8; i++ {
 				args = append(args, originalReq.Query)
 			}
 		} else {
-			condition := "(lower(mobile) LIKE lower(?) OR lower(name) LIKE lower(?) OR lower(fname) LIKE lower(?) OR lower(address) LIKE lower(?) OR lower(alt) LIKE lower(?) OR lower(circle) LIKE lower(?) OR lower(email) LIKE lower(?))"
+			condition := "(lower(mobile) LIKE lower(?) OR lower(name) LIKE lower(?) OR lower(fname) LIKE lower(?) OR lower(address) LIKE lower(?) OR lower(alt) LIKE lower(?) OR lower(circle) LIKE lower(?) OR lower(email) LIKE lower(?) OR lower(master_id) LIKE lower(?))"
 			originalConditions = append(originalConditions, condition)
 			queryWithWildcard := "%" + originalReq.Query + "%"
-			for i := 0; i < 7; i++ {
+			for i := 0; i < 8; i++ {
 				args = append(args, queryWithWildcard)
 			}
 		}
@@ -308,7 +328,7 @@ func (s *SearchService) getSearchWithinTotalCount(originalReq *models.SearchRequ
 	newConditions := []string{}
 	fields := withinReq.Fields
 	if len(fields) == 0 {
-		fields = []string{"mobile", "name", "fname", "address", "alt", "circle", "email"}
+		fields = []string{"mobile", "name", "fname", "address", "alt", "circle", "email", "master_id"}
 	}
 
 	for _, field := range fields {
@@ -358,13 +378,14 @@ func (s *SearchService) getSearchWithinTotalCount(originalReq *models.SearchRequ
 // isValidField checks if the field is valid for searching
 func (s *SearchService) isValidField(field string) bool {
 	validFields := map[string]bool{
-		"mobile":  true,
-		"name":    true,
-		"fname":   true,
-		"address": true,
-		"alt":     true,
-		"circle":  true,
-		"email":   true,
+		"mobile":    true,
+		"name":      true,
+		"fname":     true,
+		"address":   true,
+		"alt":       true,
+		"circle":    true,
+		"email":     true,
+		"master_id": true,
 	}
 	return validFields[field]
 }
@@ -538,14 +559,34 @@ func (s *SearchService) SearchWithin(userID uuid.UUID, req *models.SearchWithinR
 func (s *SearchService) buildSearchWithinQuery(originalReq *models.SearchRequest, withinReq *models.SearchWithinRequest) string {
 	// Build the original query conditions
 	originalConditions := []string{}
-	for _, field := range originalReq.Fields {
-		if !s.isValidField(field) {
-			continue
+
+	// Check if we have field-specific queries (preferred method)
+	if len(originalReq.FieldQueries) > 0 {
+		// Field-specific search: each field has its own query value
+		for field, value := range originalReq.FieldQueries {
+			if !s.isValidField(field) {
+				continue
+			}
+			if strings.TrimSpace(value) == "" {
+				continue
+			}
+			if originalReq.MatchType == "full" {
+				originalConditions = append(originalConditions, fmt.Sprintf("%s = '%s'", field, value))
+			} else {
+				originalConditions = append(originalConditions, fmt.Sprintf("lower(%s) LIKE lower('%%%s%%')", field, value))
+			}
 		}
-		if originalReq.MatchType == "full" {
-			originalConditions = append(originalConditions, fmt.Sprintf("%s = '%s'", field, originalReq.Query))
-		} else {
-			originalConditions = append(originalConditions, fmt.Sprintf("%s ILIKE '%%%s%%'", field, originalReq.Query))
+	} else if len(originalReq.Fields) > 0 {
+		// Legacy method: single query across multiple fields
+		for _, field := range originalReq.Fields {
+			if !s.isValidField(field) {
+				continue
+			}
+			if originalReq.MatchType == "full" {
+				originalConditions = append(originalConditions, fmt.Sprintf("%s = '%s'", field, originalReq.Query))
+			} else {
+				originalConditions = append(originalConditions, fmt.Sprintf("lower(%s) LIKE lower('%%%s%%')", field, originalReq.Query))
+			}
 		}
 	}
 
@@ -553,7 +594,7 @@ func (s *SearchService) buildSearchWithinQuery(originalReq *models.SearchRequest
 	newConditions := []string{}
 	fields := withinReq.Fields
 	if len(fields) == 0 {
-		fields = []string{"mobile", "name", "fname", "address", "alt", "circle", "email"}
+		fields = []string{"mobile", "name", "fname", "address", "alt", "circle", "email", "master_id"}
 	}
 
 	for _, field := range fields {
@@ -563,7 +604,7 @@ func (s *SearchService) buildSearchWithinQuery(originalReq *models.SearchRequest
 		if withinReq.MatchType == "full" {
 			newConditions = append(newConditions, fmt.Sprintf("%s = '%s'", field, withinReq.Query))
 		} else {
-			newConditions = append(newConditions, fmt.Sprintf("%s ILIKE '%%%s%%'", field, withinReq.Query))
+			newConditions = append(newConditions, fmt.Sprintf("lower(%s) LIKE lower('%%%s%%')", field, withinReq.Query))
 		}
 	}
 

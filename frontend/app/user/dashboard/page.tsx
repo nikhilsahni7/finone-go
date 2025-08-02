@@ -58,7 +58,7 @@ export default function UserDashboard() {
     circle: "",
   });
 
-  const [searchLogic, setSearchLogic] = useState<"AND" | "OR">("OR");
+  const [searchLogic, setSearchLogic] = useState<"AND" | "OR">("AND");
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [userAnalytics, setUserAnalytics] = useState<UserAnalytics | null>(
     null
@@ -231,7 +231,15 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
         const searchWithinRequest: SearchWithinRequest = {
           search_id: searchId,
           query: searchWithinQuery.trim(),
-          fields: ["name", "fname", "mobile", "address", "circle", "email"],
+          fields: [
+            "name",
+            "fname",
+            "mobile",
+            "address",
+            "circle",
+            "email",
+            "master_id",
+          ],
           match_type: "partial",
           limit: pageSize,
           offset: 0,
@@ -339,7 +347,15 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
         const searchWithinRequest: SearchWithinRequest = {
           search_id: searchId,
           query: searchWithinQuery,
-          fields: ["name", "fname", "mobile", "address", "circle", "email"],
+          fields: [
+            "name",
+            "fname",
+            "mobile",
+            "address",
+            "circle",
+            "email",
+            "master_id",
+          ],
           match_type: "partial",
           limit: pageSize,
           offset: offset,
@@ -471,8 +487,8 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
       circle: "",
     });
 
-    // Reset search logic to OR
-    setSearchLogic("OR");
+    // Reset search logic to AND
+    setSearchLogic("AND");
 
     // Only refresh analytics if we're not already loading
     if (!isLoading) {
@@ -875,13 +891,13 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
                     }
                     className="border border-gray-300 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                   >
-                    <option value="OR">OR</option>
                     <option value="AND">AND</option>
+                    <option value="OR">OR</option>
                   </select>
                   <span className="text-sm text-gray-600">
-                    {searchLogic === "OR"
-                      ? "Any field can match (broader search)"
-                      : "All filled fields must match (precise search)"}
+                    {searchLogic === "AND"
+                      ? "All filled fields must match (precise search)"
+                      : "Any field can match (broader search)"}
                   </span>
                 </div>
 

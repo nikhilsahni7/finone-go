@@ -55,7 +55,7 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		req.Limit = 10000 // Max limit from config
 	}
 	if req.Logic == "" {
-		req.Logic = "OR"
+		req.Logic = "AND"
 	}
 	if req.MatchType == "" {
 		req.MatchType = "partial"
