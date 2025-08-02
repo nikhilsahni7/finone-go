@@ -4,14 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { ApiError, login } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { AlertCircle, ArrowLeft, Eye, EyeOff, User } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function UserLogin() {
+  const { login: authLogin, isAuthenticated } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState("");
@@ -20,6 +21,13 @@ export default function UserLogin() {
     password: "",
   });
   const router = useRouter();
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      router.push("/user/dashboard");
+    }
+  }, [isAuthenticated, router]);
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({
@@ -35,30 +43,16 @@ export default function UserLogin() {
     setIsLoading(true);
     setError("");
 
-    try {
-      const data = await login(formData.email, formData.password);
+    const result = await authLogin(formData.email, formData.password);
 
-      // Store token in localStorage
-      localStorage.setItem("token", data.token);
-      localStorage.setItem("user", JSON.stringify(data.user));
-
-      // Set cookie for middleware
-      document.cookie = `token=${data.token}; path=/; max-age=${
-        24 * 60 * 60
-      }; secure; samesite=strict`;
-
+    if (result.success) {
       // Redirect to dashboard
       router.push("/user/dashboard");
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setError(err.message);
-      } else {
-        setError("Network error. Please try again.");
-      }
-      console.error("Login error:", err);
-    } finally {
-      setIsLoading(false);
+    } else {
+      setError(result.error || "Login failed");
     }
+
+    setIsLoading(false);
   };
 
   return (

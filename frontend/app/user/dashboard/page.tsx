@@ -1,5 +1,6 @@
 "use client";
 
+import ProtectedRoute from "@/components/protected-route";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -9,16 +10,12 @@ import {
   SearchRequest,
   SearchWithinRequest,
   UserAnalytics,
-  UserProfile,
-  clearAuth,
   exportSearchResults,
   getMyAnalytics,
-  getProfile,
-  getUser,
-  logout,
   search,
   searchWithin,
 } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import {
   AlertCircle,
   ChevronRight,
@@ -31,7 +28,6 @@ import {
   Search,
 } from "lucide-react";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
 interface SearchResult {
@@ -47,6 +43,7 @@ interface SearchResult {
 }
 
 export default function UserDashboard() {
+  const { user: currentUser, logout: authLogout, refreshUser } = useAuth();
   const [searchCriteria, setSearchCriteria] = useState({
     customerName: "",
     fatherName: "",
@@ -59,7 +56,6 @@ export default function UserDashboard() {
   });
 
   const [searchLogic, setSearchLogic] = useState<"AND" | "OR">("AND");
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [userAnalytics, setUserAnalytics] = useState<UserAnalytics | null>(
     null
   );
@@ -79,7 +75,6 @@ export default function UserDashboard() {
     SearchResult[]
   >([]);
   const [lastSearchTime, setLastSearchTime] = useState(0);
-  const router = useRouter();
 
   // Helper function to highlight searched terms
   const highlightSearchTerms = (text: string, searchTerms: string[]) => {
@@ -158,25 +153,18 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
   useEffect(() => {
     const initializeDashboard = async () => {
       try {
-        // Check if user is authenticated
-        const user = getUser();
-        if (!user) {
-          router.push("/user/login");
+        // Check if user is authenticated is handled by ProtectedRoute
+        if (!currentUser) {
           return;
         }
 
-        // Fetch fresh user profile and analytics from backend
-        const [profile, analytics] = await Promise.all([
-          getProfile(),
-          getMyAnalytics(),
-        ]);
-        setCurrentUser(profile);
+        // Fetch user analytics from backend
+        const analytics = await getMyAnalytics();
         setUserAnalytics(analytics);
       } catch (err) {
         console.error("Dashboard initialization error:", err);
         if (err instanceof ApiError && err.status === 401) {
-          clearAuth();
-          router.push("/user/login");
+          // Auth context will handle this automatically
           return;
         }
         setError("Failed to load dashboard data");
@@ -186,7 +174,7 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
     };
 
     initializeDashboard();
-  }, [router]);
+  }, [currentUser]);
 
   const handleInputChange = (field: string, value: string) => {
     setSearchCriteria((prev) => ({
@@ -452,15 +440,7 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
   };
 
   const handleSignOut = async () => {
-    try {
-      await logout();
-    } catch (err) {
-      console.error("Logout error:", err);
-    } finally {
-      clearAuth();
-      document.cookie = "token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-      router.push("/user/login");
-    }
+    await authLogout();
   };
 
   const resetSearch = () => {
@@ -539,618 +519,631 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
     : 0;
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-4">
-            <Image
-              src="/logo-final.png"
-              alt="FinnOne"
-              width={120}
-              height={35}
-            />
-            <div>
-              <h1 className="text-xl font-semibold text-gray-900">
-                Customer Search
-              </h1>
-              <p className="text-sm text-gray-600">
-                Welcome back, {currentUser.name}
-              </p>
+    <ProtectedRoute>
+      <div className="min-h-screen bg-gray-50">
+        {/* Header */}
+        <div className="bg-white border-b border-gray-200 px-6 py-4">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center space-x-4">
+              <Image
+                src="/logo-final.png"
+                alt="FinnOne"
+                width={120}
+                height={35}
+              />
+              <div>
+                <h1 className="text-xl font-semibold text-gray-900">
+                  Customer Search
+                </h1>
+                <p className="text-sm text-gray-600">
+                  Welcome back, {currentUser.name}
+                </p>
+              </div>
             </div>
-          </div>
-          <div className="flex items-center space-x-4">
-            <div className="text-right">
-              <p className="text-sm text-gray-600">Daily Usage</p>
-              <p className="text-lg font-semibold text-gray-900">
-                {userAnalytics?.today_searches || 0}/
-                {currentUser.max_searches_per_day}
-              </p>
+            <div className="flex items-center space-x-4">
+              <div className="text-right">
+                <p className="text-sm text-gray-600">Daily Usage</p>
+                <p className="text-lg font-semibold text-gray-900">
+                  {userAnalytics?.today_searches || 0}/
+                  {currentUser.max_searches_per_day}
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSignOut}
+                className="text-gray-700 border-gray-300 hover:bg-gray-50"
+              >
+                <LogOut className="w-4 h-4 mr-2" />
+                Sign Out
+              </Button>
             </div>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleSignOut}
-              className="text-gray-700 border-gray-300 hover:bg-gray-50"
-            >
-              <LogOut className="w-4 h-4 mr-2" />
-              Sign Out
-            </Button>
           </div>
         </div>
-      </div>
 
-      <div className="flex">
-        {/* Main Content */}
-        <div className="flex-1 p-6">
-          {/* Error Message */}
-          {error && (
-            <div className="flex items-center space-x-2 p-4 bg-red-50 border border-red-200 rounded-lg mb-6">
-              <AlertCircle className="w-5 h-5 text-red-500" />
-              <p className="text-sm text-red-600">{error}</p>
-            </div>
-          )}
-
-          {/* Search Form - Fixed Position */}
-          <Card className="shadow-sm mb-6">
-            <CardHeader>
-              <div className="flex items-center">
-                <Search className="w-5 h-5 text-blue-600 mr-2" />
-                <CardTitle className="text-lg text-gray-900">
-                  Customer Search
-                </CardTitle>
+        <div className="flex">
+          {/* Main Content */}
+          <div className="flex-1 p-6">
+            {/* Error Message */}
+            {error && (
+              <div className="flex items-center space-x-2 p-4 bg-red-50 border border-red-200 rounded-lg mb-6">
+                <AlertCircle className="w-5 h-5 text-red-500" />
+                <p className="text-sm text-red-600">{error}</p>
               </div>
-            </CardHeader>
-            <CardContent>
-              <form
-                onSubmit={(e) => handleSearch(e, false)}
-                className="space-y-6"
-              >
-                {/* Search Logic */}
-                <div className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg">
-                  <span className="text-sm font-medium text-gray-700">
-                    Search Logic:
-                  </span>
-                  <select
-                    value={searchLogic}
-                    onChange={(e) =>
-                      setSearchLogic(e.target.value as "AND" | "OR")
-                    }
-                    className="border border-gray-300 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="AND">AND</option>
-                    <option value="OR">OR</option>
-                  </select>
-                  <span className="text-sm text-gray-600">
-                    {searchLogic === "AND"
-                      ? "All filled fields must match (precise search)"
-                      : "Any field can match (broader search)"}
-                  </span>
-                </div>
+            )}
 
-                {/* Search Fields */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="customerName"
-                      className="text-sm font-medium text-gray-700"
-                    >
-                      Customer Name
-                    </Label>
-                    <Input
-                      id="customerName"
-                      placeholder="Enter customer name"
-                      value={searchCriteria.customerName}
-                      onChange={(e) =>
-                        handleInputChange("customerName", e.target.value)
-                      }
-                      className="focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="fatherName"
-                      className="text-sm font-medium text-gray-700"
-                    >
-                      Father Name
-                    </Label>
-                    <Input
-                      id="fatherName"
-                      placeholder="Enter father's name"
-                      value={searchCriteria.fatherName}
-                      onChange={(e) =>
-                        handleInputChange("fatherName", e.target.value)
-                      }
-                      className="focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="mobileNumber"
-                      className="text-sm font-medium text-gray-700"
-                    >
-                      Mobile Number
-                    </Label>
-                    <Input
-                      id="mobileNumber"
-                      placeholder="Enter mobile number"
-                      value={searchCriteria.mobileNumber}
-                      onChange={(e) =>
-                        handleInputChange("mobileNumber", e.target.value)
-                      }
-                      className="focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="alternateNumber"
-                      className="text-sm font-medium text-gray-700"
-                    >
-                      Alternate Number
-                    </Label>
-                    <Input
-                      id="alternateNumber"
-                      placeholder="Enter alternate number"
-                      value={searchCriteria.alternateNumber}
-                      onChange={(e) =>
-                        handleInputChange("alternateNumber", e.target.value)
-                      }
-                      className="focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="emailAddress"
-                      className="text-sm font-medium text-gray-700"
-                    >
-                      Email Address
-                    </Label>
-                    <Input
-                      id="emailAddress"
-                      placeholder="Enter email address"
-                      value={searchCriteria.emailAddress}
-                      onChange={(e) =>
-                        handleInputChange("emailAddress", e.target.value)
-                      }
-                      className="focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="masterId"
-                      className="text-sm font-medium text-gray-700"
-                    >
-                      Master ID
-                    </Label>
-                    <Input
-                      id="masterId"
-                      placeholder="Enter Master ID"
-                      value={searchCriteria.masterId}
-                      onChange={(e) =>
-                        handleInputChange("masterId", e.target.value)
-                      }
-                      className="focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="address"
-                      className="text-sm font-medium text-gray-700"
-                    >
-                      Address
-                    </Label>
-                    <Input
-                      id="address"
-                      placeholder="Enter address or location"
-                      value={searchCriteria.address}
-                      onChange={(e) =>
-                        handleInputChange("address", e.target.value)
-                      }
-                      className="focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="circle"
-                      className="text-sm font-medium text-gray-700"
-                    >
-                      Circle
-                    </Label>
-                    <Input
-                      id="circle"
-                      placeholder="Enter circle (e.g., AIRTEL DELHI)"
-                      value={searchCriteria.circle}
-                      onChange={(e) =>
-                        handleInputChange("circle", e.target.value)
-                      }
-                      className="focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-
-                {/* Search Tip */}
-                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                  <p className="text-sm text-blue-800">
-                    <strong>Search Tip:</strong>
-                    {searchLogic === "OR"
-                      ? " OR logic finds records where ANY field matches your search terms (broader results)."
-                      : " AND logic finds records where ALL filled fields must match your search terms (precise results)."}
-                    Fill any combination of fields above. Circle field helps
-                    filter by telecom circle (e.g., AIRTEL DELHI).
-                  </p>
-                </div>
-
-                <Button
-                  type="submit"
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 text-lg font-medium transition-colors"
-                  disabled={isLoading || remainingSearches <= 0}
-                >
-                  {isLoading ? (
-                    <div className="flex items-center">
-                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      Searching...
-                    </div>
-                  ) : remainingSearches <= 0 ? (
-                    <>
-                      <AlertCircle className="w-5 h-5 mr-2" />
-                      Daily Limit Reached
-                    </>
-                  ) : (
-                    <>
-                      <Search className="w-5 h-5 mr-2" />
-                      Search ({remainingSearches} remaining)
-                    </>
-                  )}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
-
-          {/* Search Results - Appears Below Search Form */}
-          {searchResults.length > 0 && (
-            <Card className="shadow-sm">
-              <CardHeader className="pb-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <CardTitle className="text-lg flex items-center text-gray-900">
-                      <Search className="w-5 h-5 text-blue-600 mr-2" />
-                      Search Results
-                    </CardTitle>
-                    <div className="flex items-center space-x-3 mt-2">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                        {totalResults.toLocaleString()} results
-                      </span>
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                        {executionTime}ms
-                      </span>
-                      <span className="text-sm text-gray-600">
-                        Showing {searchResults.length} of{" "}
-                        {totalResults.toLocaleString()}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="flex space-x-2">
-                    {searchId && (
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={handleExport}
-                        className="text-green-600 border-green-600 hover:bg-green-50"
-                      >
-                        <Download className="w-4 h-4 mr-2" />
-                        Export
-                      </Button>
-                    )}
-                    <Button variant="outline" size="sm" onClick={resetSearch}>
-                      <RefreshCw className="w-4 h-4 mr-2" />
-                      New Search
-                    </Button>
-                  </div>
+            {/* Search Form - Fixed Position */}
+            <Card className="shadow-sm mb-6">
+              <CardHeader>
+                <div className="flex items-center">
+                  <Search className="w-5 h-5 text-blue-600 mr-2" />
+                  <CardTitle className="text-lg text-gray-900">
+                    Customer Search
+                  </CardTitle>
                 </div>
               </CardHeader>
               <CardContent>
-                {/* Search Within */}
-                {searchResults.length > 0 && !isSearchWithinMode && (
-                  <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <Search className="w-4 h-4 text-blue-600" />
-                      <h3 className="font-medium text-blue-900">
-                        Search Within Results
-                      </h3>
+                <form
+                  onSubmit={(e) => handleSearch(e, false)}
+                  className="space-y-6"
+                >
+                  {/* Search Logic */}
+                  <div className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg">
+                    <span className="text-sm font-medium text-gray-700">
+                      Search Logic:
+                    </span>
+                    <select
+                      value={searchLogic}
+                      onChange={(e) =>
+                        setSearchLogic(e.target.value as "AND" | "OR")
+                      }
+                      className="border border-gray-300 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="AND">AND</option>
+                      <option value="OR">OR</option>
+                    </select>
+                    <span className="text-sm text-gray-600">
+                      {searchLogic === "AND"
+                        ? "All filled fields must match (precise search)"
+                        : "Any field can match (broader search)"}
+                    </span>
+                  </div>
+
+                  {/* Search Fields */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="customerName"
+                        className="text-sm font-medium text-gray-700"
+                      >
+                        Customer Name
+                      </Label>
+                      <Input
+                        id="customerName"
+                        placeholder="Enter customer name"
+                        value={searchCriteria.customerName}
+                        onChange={(e) =>
+                          handleInputChange("customerName", e.target.value)
+                        }
+                        className="focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="fatherName"
+                        className="text-sm font-medium text-gray-700"
+                      >
+                        Father Name
+                      </Label>
+                      <Input
+                        id="fatherName"
+                        placeholder="Enter father's name"
+                        value={searchCriteria.fatherName}
+                        onChange={(e) =>
+                          handleInputChange("fatherName", e.target.value)
+                        }
+                        className="focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="mobileNumber"
+                        className="text-sm font-medium text-gray-700"
+                      >
+                        Mobile Number
+                      </Label>
+                      <Input
+                        id="mobileNumber"
+                        placeholder="Enter mobile number"
+                        value={searchCriteria.mobileNumber}
+                        onChange={(e) =>
+                          handleInputChange("mobileNumber", e.target.value)
+                        }
+                        className="focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="alternateNumber"
+                        className="text-sm font-medium text-gray-700"
+                      >
+                        Alternate Number
+                      </Label>
+                      <Input
+                        id="alternateNumber"
+                        placeholder="Enter alternate number"
+                        value={searchCriteria.alternateNumber}
+                        onChange={(e) =>
+                          handleInputChange("alternateNumber", e.target.value)
+                        }
+                        className="focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="emailAddress"
+                        className="text-sm font-medium text-gray-700"
+                      >
+                        Email Address
+                      </Label>
+                      <Input
+                        id="emailAddress"
+                        placeholder="Enter email address"
+                        value={searchCriteria.emailAddress}
+                        onChange={(e) =>
+                          handleInputChange("emailAddress", e.target.value)
+                        }
+                        className="focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="masterId"
+                        className="text-sm font-medium text-gray-700"
+                      >
+                        Master ID
+                      </Label>
+                      <Input
+                        id="masterId"
+                        placeholder="Enter Master ID"
+                        value={searchCriteria.masterId}
+                        onChange={(e) =>
+                          handleInputChange("masterId", e.target.value)
+                        }
+                        className="focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="address"
+                        className="text-sm font-medium text-gray-700"
+                      >
+                        Address
+                      </Label>
+                      <Input
+                        id="address"
+                        placeholder="Enter address or location"
+                        value={searchCriteria.address}
+                        onChange={(e) =>
+                          handleInputChange("address", e.target.value)
+                        }
+                        className="focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label
+                        htmlFor="circle"
+                        className="text-sm font-medium text-gray-700"
+                      >
+                        Circle
+                      </Label>
+                      <Input
+                        id="circle"
+                        placeholder="Enter circle (e.g., AIRTEL DELHI)"
+                        value={searchCriteria.circle}
+                        onChange={(e) =>
+                          handleInputChange("circle", e.target.value)
+                        }
+                        className="focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Search Tip */}
+                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                    <p className="text-sm text-blue-800">
+                      <strong>Search Tip:</strong>
+                      {searchLogic === "OR"
+                        ? " OR logic finds records where ANY field matches your search terms (broader results)."
+                        : " AND logic finds records where ALL filled fields must match your search terms (precise results)."}
+                      Fill any combination of fields above. Circle field helps
+                      filter by telecom circle (e.g., AIRTEL DELHI).
+                    </p>
+                  </div>
+
+                  <Button
+                    type="submit"
+                    className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 text-lg font-medium transition-colors"
+                    disabled={isLoading || remainingSearches <= 0}
+                  >
+                    {isLoading ? (
+                      <div className="flex items-center">
+                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                        Searching...
+                      </div>
+                    ) : remainingSearches <= 0 ? (
+                      <>
+                        <AlertCircle className="w-5 h-5 mr-2" />
+                        Daily Limit Reached
+                      </>
+                    ) : (
+                      <>
+                        <Search className="w-5 h-5 mr-2" />
+                        Search ({remainingSearches} remaining)
+                      </>
+                    )}
+                  </Button>
+                </form>
+              </CardContent>
+            </Card>
+
+            {/* Search Results - Appears Below Search Form */}
+            {searchResults.length > 0 && (
+              <Card className="shadow-sm">
+                <CardHeader className="pb-4">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <CardTitle className="text-lg flex items-center text-gray-900">
+                        <Search className="w-5 h-5 text-blue-600 mr-2" />
+                        Search Results
+                      </CardTitle>
+                      <div className="flex items-center space-x-3 mt-2">
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                          {totalResults.toLocaleString()} results
+                        </span>
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                          {executionTime}ms
+                        </span>
+                        <span className="text-sm text-gray-600">
+                          Showing {searchResults.length} of{" "}
+                          {totalResults.toLocaleString()}
+                        </span>
+                      </div>
                     </div>
                     <div className="flex space-x-2">
-                      <Input
-                        placeholder="Search within these results..."
-                        value={searchWithinQuery}
-                        onChange={(e) => setSearchWithinQuery(e.target.value)}
-                        className="flex-1"
-                      />
-                      <Button
-                        size="sm"
-                        onClick={(e) => {
-                          setIsSearchWithinMode(true);
-                          handleSearch(e, true);
-                        }}
-                        disabled={!searchWithinQuery.trim() || isLoading}
-                      >
-                        {isLoading ? (
-                          <div className="flex items-center">
-                            <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                            Searching...
-                          </div>
-                        ) : (
-                          "Search"
-                        )}
+                      {searchId && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={handleExport}
+                          className="text-green-600 border-green-600 hover:bg-green-50"
+                        >
+                          <Download className="w-4 h-4 mr-2" />
+                          Export
+                        </Button>
+                      )}
+                      <Button variant="outline" size="sm" onClick={resetSearch}>
+                        <RefreshCw className="w-4 h-4 mr-2" />
+                        New Search
                       </Button>
                     </div>
                   </div>
-                )}
-
-                {/* Search Within Loading State */}
-                {isSearchWithinMode && isLoading && (
-                  <div className="mb-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                    <div className="flex items-center space-x-2">
-                      <Loader2 className="w-4 h-4 text-yellow-600 animate-spin" />
-                      <span className="text-yellow-800 font-medium">
-                        Searching within results for "{searchWithinQuery}"...
-                      </span>
-                    </div>
-                  </div>
-                )}
-
-                {/* Results */}
-                <div className="space-y-3">
-                  {searchResults.map((result: SearchResult, index: number) => {
-                    const searchTerms = getSearchTerms();
-                    return (
-                      <div
-                        key={result.id || index}
-                        className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all duration-200"
-                      >
-                        {/* Header with Name and Result Number */}
-                        <div className="flex items-center justify-between mb-3">
-                          <h3 className="font-semibold text-gray-900 text-lg">
-                            <span
-                              dangerouslySetInnerHTML={{
-                                __html: highlightSearchTerms(
-                                  result.name,
-                                  searchTerms
-                                ),
-                              }}
-                            />
-                          </h3>
-                          <div className="flex items-center space-x-2">
-                            <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-                              #{index + 1}
-                            </span>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => copyToClipboard(result)}
-                              className="text-blue-600 border-blue-600 hover:bg-blue-50"
-                            >
-                              <Copy className="w-3 h-3 mr-1" />
-                              Copy
-                            </Button>
-                          </div>
-                        </div>
-
-                        {/* Contact Information */}
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                          <div className="space-y-3">
-                            {result.mobile && (
-                              <div className="flex items-start">
-                                <span className="text-gray-500 font-medium text-sm w-24">
-                                  Mobile:
-                                </span>
-                                <span className="text-blue-600 font-medium text-sm">
-                                  {formatFieldValue(result.mobile, "mobile")}
-                                </span>
-                              </div>
-                            )}
-
-                            <div className="flex items-start">
-                              <span className="text-gray-500 font-medium text-sm w-24">
-                                Father Name:
-                              </span>
-                              <span
-                                className="text-gray-700 text-sm"
-                                dangerouslySetInnerHTML={{
-                                  __html: highlightSearchTerms(
-                                    result.fname,
-                                    searchTerms
-                                  ),
-                                }}
-                              />
-                            </div>
-
-                            {result.email && (
-                              <div className="flex items-start">
-                                <span className="text-gray-500 font-medium text-sm w-24">
-                                  Email:
-                                </span>
-                                <span
-                                  className="text-gray-700 text-sm"
-                                  dangerouslySetInnerHTML={{
-                                    __html: highlightSearchTerms(
-                                      formatFieldValue(result.email, "email"),
-                                      searchTerms
-                                    ),
-                                  }}
-                                />
-                              </div>
-                            )}
-
-                            {result.master_id && (
-                              <div className="flex items-start">
-                                <span className="text-gray-500 font-medium text-sm w-24">
-                                  Master ID:
-                                </span>
-                                <span
-                                  className="text-gray-700 text-sm"
-                                  dangerouslySetInnerHTML={{
-                                    __html: highlightSearchTerms(
-                                      result.master_id,
-                                      searchTerms
-                                    ),
-                                  }}
-                                />
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="space-y-3">
-                            <div className="flex items-start">
-                              <span className="text-gray-500 font-medium text-sm w-24">
-                                Address:
-                              </span>
-                              <span
-                                className="text-gray-700 text-sm"
-                                dangerouslySetInnerHTML={{
-                                  __html: highlightSearchTerms(
-                                    formatFieldValue(result.address, "address"),
-                                    searchTerms
-                                  ),
-                                }}
-                              />
-                            </div>
-
-                            <div className="flex items-start">
-                              <span className="text-gray-500 font-medium text-sm w-24">
-                                Circle:
-                              </span>
-                              <span
-                                className="text-gray-700 text-sm"
-                                dangerouslySetInnerHTML={{
-                                  __html: highlightSearchTerms(
-                                    result.circle,
-                                    searchTerms
-                                  ),
-                                }}
-                              />
-                            </div>
-
-                            {result.alt && (
-                              <div className="flex items-start">
-                                <span className="text-gray-500 font-medium text-sm w-24">
-                                  Alternate:
-                                </span>
-                                <span
-                                  className="text-gray-700 text-sm"
-                                  dangerouslySetInnerHTML={{
-                                    __html: highlightSearchTerms(
-                                      result.alt,
-                                      searchTerms
-                                    ),
-                                  }}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        </div>
+                </CardHeader>
+                <CardContent>
+                  {/* Search Within */}
+                  {searchResults.length > 0 && !isSearchWithinMode && (
+                    <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                      <div className="flex items-center space-x-2 mb-2">
+                        <Search className="w-4 h-4 text-blue-600" />
+                        <h3 className="font-medium text-blue-900">
+                          Search Within Results
+                        </h3>
                       </div>
-                    );
-                  })}
+                      <div className="flex space-x-2">
+                        <Input
+                          placeholder="Search within these results..."
+                          value={searchWithinQuery}
+                          onChange={(e) => setSearchWithinQuery(e.target.value)}
+                          className="flex-1"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={(e) => {
+                            setIsSearchWithinMode(true);
+                            handleSearch(e, true);
+                          }}
+                          disabled={!searchWithinQuery.trim() || isLoading}
+                        >
+                          {isLoading ? (
+                            <div className="flex items-center">
+                              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                              Searching...
+                            </div>
+                          ) : (
+                            "Search"
+                          )}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Search Within Loading State */}
+                  {isSearchWithinMode && isLoading && (
+                    <div className="mb-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
+                      <div className="flex items-center space-x-2">
+                        <Loader2 className="w-4 h-4 text-yellow-600 animate-spin" />
+                        <span className="text-yellow-800 font-medium">
+                          Searching within results for "{searchWithinQuery}"...
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Results */}
+                  <div className="space-y-3">
+                    {searchResults.map(
+                      (result: SearchResult, index: number) => {
+                        const searchTerms = getSearchTerms();
+                        return (
+                          <div
+                            key={result.id || index}
+                            className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all duration-200"
+                          >
+                            {/* Header with Name and Result Number */}
+                            <div className="flex items-center justify-between mb-3">
+                              <h3 className="font-semibold text-gray-900 text-lg">
+                                <span
+                                  dangerouslySetInnerHTML={{
+                                    __html: highlightSearchTerms(
+                                      result.name,
+                                      searchTerms
+                                    ),
+                                  }}
+                                />
+                              </h3>
+                              <div className="flex items-center space-x-2">
+                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                                  #{index + 1}
+                                </span>
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => copyToClipboard(result)}
+                                  className="text-blue-600 border-blue-600 hover:bg-blue-50"
+                                >
+                                  <Copy className="w-3 h-3 mr-1" />
+                                  Copy
+                                </Button>
+                              </div>
+                            </div>
+
+                            {/* Contact Information */}
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                              <div className="space-y-3">
+                                {result.mobile && (
+                                  <div className="flex items-start">
+                                    <span className="text-gray-500 font-medium text-sm w-24">
+                                      Mobile:
+                                    </span>
+                                    <span className="text-blue-600 font-medium text-sm">
+                                      {formatFieldValue(
+                                        result.mobile,
+                                        "mobile"
+                                      )}
+                                    </span>
+                                  </div>
+                                )}
+
+                                <div className="flex items-start">
+                                  <span className="text-gray-500 font-medium text-sm w-24">
+                                    Father Name:
+                                  </span>
+                                  <span
+                                    className="text-gray-700 text-sm"
+                                    dangerouslySetInnerHTML={{
+                                      __html: highlightSearchTerms(
+                                        result.fname,
+                                        searchTerms
+                                      ),
+                                    }}
+                                  />
+                                </div>
+
+                                {result.email && (
+                                  <div className="flex items-start">
+                                    <span className="text-gray-500 font-medium text-sm w-24">
+                                      Email:
+                                    </span>
+                                    <span
+                                      className="text-gray-700 text-sm"
+                                      dangerouslySetInnerHTML={{
+                                        __html: highlightSearchTerms(
+                                          formatFieldValue(
+                                            result.email,
+                                            "email"
+                                          ),
+                                          searchTerms
+                                        ),
+                                      }}
+                                    />
+                                  </div>
+                                )}
+
+                                {result.master_id && (
+                                  <div className="flex items-start">
+                                    <span className="text-gray-500 font-medium text-sm w-24">
+                                      Master ID:
+                                    </span>
+                                    <span
+                                      className="text-gray-700 text-sm"
+                                      dangerouslySetInnerHTML={{
+                                        __html: highlightSearchTerms(
+                                          result.master_id,
+                                          searchTerms
+                                        ),
+                                      }}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+
+                              <div className="space-y-3">
+                                <div className="flex items-start">
+                                  <span className="text-gray-500 font-medium text-sm w-24">
+                                    Address:
+                                  </span>
+                                  <span
+                                    className="text-gray-700 text-sm"
+                                    dangerouslySetInnerHTML={{
+                                      __html: highlightSearchTerms(
+                                        formatFieldValue(
+                                          result.address,
+                                          "address"
+                                        ),
+                                        searchTerms
+                                      ),
+                                    }}
+                                  />
+                                </div>
+
+                                <div className="flex items-start">
+                                  <span className="text-gray-500 font-medium text-sm w-24">
+                                    Circle:
+                                  </span>
+                                  <span
+                                    className="text-gray-700 text-sm"
+                                    dangerouslySetInnerHTML={{
+                                      __html: highlightSearchTerms(
+                                        result.circle,
+                                        searchTerms
+                                      ),
+                                    }}
+                                  />
+                                </div>
+
+                                {result.alt && (
+                                  <div className="flex items-start">
+                                    <span className="text-gray-500 font-medium text-sm w-24">
+                                      Alternate:
+                                    </span>
+                                    <span
+                                      className="text-gray-700 text-sm"
+                                      dangerouslySetInnerHTML={{
+                                        __html: highlightSearchTerms(
+                                          result.alt,
+                                          searchTerms
+                                        ),
+                                      }}
+                                    />
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      }
+                    )}
+                  </div>
+
+                  {/* Load More Button */}
+                  {hasMore && (
+                    <div className="mt-6 text-center">
+                      <Button
+                        onClick={handleLoadMore}
+                        disabled={isLoading}
+                        className="bg-purple-600 hover:bg-purple-700"
+                      >
+                        {isLoading ? (
+                          <div className="flex items-center">
+                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                            Loading...
+                          </div>
+                        ) : (
+                          <>
+                            <ChevronRight className="w-4 h-4 mr-2" />
+                            Load More Results
+                          </>
+                        )}
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Right Panel - Daily Usage */}
+          <div className="w-80 bg-white border-l border-gray-200 p-6">
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold text-gray-900 mb-4">
+                Daily Usage
+              </h3>
+            </div>
+
+            <Card className="shadow-sm">
+              <CardHeader>
+                <div className="flex items-center">
+                  <Clock className="w-5 h-5 text-blue-600 mr-2" />
+                  <CardTitle className="text-base text-gray-900">
+                    Daily Search Limit
+                  </CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <p className="text-sm text-gray-600">
+                  Searches used today: {userAnalytics?.today_searches || 0} of{" "}
+                  {currentUser.max_searches_per_day} remaining.
+                </p>
+
+                <div className="w-full bg-gray-200 rounded-full h-3">
+                  <div
+                    className={`h-3 rounded-full transition-all duration-300 ${
+                      usagePercentage > 80
+                        ? "bg-red-600"
+                        : usagePercentage > 60
+                        ? "bg-yellow-600"
+                        : "bg-green-600"
+                    }`}
+                    style={{
+                      width: `${Math.min(usagePercentage, 100)}%`,
+                    }}
+                  ></div>
                 </div>
 
-                {/* Load More Button */}
-                {hasMore && (
-                  <div className="mt-6 text-center">
-                    <Button
-                      onClick={handleLoadMore}
-                      disabled={isLoading}
-                      className="bg-purple-600 hover:bg-purple-700"
-                    >
-                      {isLoading ? (
-                        <div className="flex items-center">
-                          <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                          Loading...
-                        </div>
-                      ) : (
-                        <>
-                          <ChevronRight className="w-4 h-4 mr-2" />
-                          Load More Results
-                        </>
-                      )}
-                    </Button>
+                <div className="grid grid-cols-2 gap-4 text-center">
+                  <div className="bg-gray-50 p-3 rounded-lg border">
+                    <p className="text-2xl font-bold text-gray-900">
+                      {userAnalytics?.today_searches || 0}
+                    </p>
+                    <p className="text-sm text-gray-600">Searches Today</p>
+                  </div>
+                  <div className="bg-gray-50 p-3 rounded-lg border">
+                    <p className="text-2xl font-bold text-gray-900">
+                      {remainingSearches}
+                    </p>
+                    <p className="text-sm text-gray-600">Remaining</p>
+                  </div>
+                </div>
+
+                {remainingSearches <= 0 && (
+                  <div className="bg-red-50 p-3 rounded-lg border border-red-200">
+                    <p className="text-sm text-red-800 text-center">
+                      Daily search limit reached. Please try again tomorrow.
+                    </p>
                   </div>
                 )}
               </CardContent>
             </Card>
-          )}
-        </div>
-
-        {/* Right Panel - Daily Usage */}
-        <div className="w-80 bg-white border-l border-gray-200 p-6">
-          <div className="mb-6">
-            <h3 className="text-lg font-semibold text-gray-900 mb-4">
-              Daily Usage
-            </h3>
           </div>
-
-          <Card className="shadow-sm">
-            <CardHeader>
-              <div className="flex items-center">
-                <Clock className="w-5 h-5 text-blue-600 mr-2" />
-                <CardTitle className="text-base text-gray-900">
-                  Daily Search Limit
-                </CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <p className="text-sm text-gray-600">
-                Searches used today: {userAnalytics?.today_searches || 0} of{" "}
-                {currentUser.max_searches_per_day} remaining.
-              </p>
-
-              <div className="w-full bg-gray-200 rounded-full h-3">
-                <div
-                  className={`h-3 rounded-full transition-all duration-300 ${
-                    usagePercentage > 80
-                      ? "bg-red-600"
-                      : usagePercentage > 60
-                      ? "bg-yellow-600"
-                      : "bg-green-600"
-                  }`}
-                  style={{
-                    width: `${Math.min(usagePercentage, 100)}%`,
-                  }}
-                ></div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 text-center">
-                <div className="bg-gray-50 p-3 rounded-lg border">
-                  <p className="text-2xl font-bold text-gray-900">
-                    {userAnalytics?.today_searches || 0}
-                  </p>
-                  <p className="text-sm text-gray-600">Searches Today</p>
-                </div>
-                <div className="bg-gray-50 p-3 rounded-lg border">
-                  <p className="text-2xl font-bold text-gray-900">
-                    {remainingSearches}
-                  </p>
-                  <p className="text-sm text-gray-600">Remaining</p>
-                </div>
-              </div>
-
-              {remainingSearches <= 0 && (
-                <div className="bg-red-50 p-3 rounded-lg border border-red-200">
-                  <p className="text-sm text-red-800 text-center">
-                    Daily search limit reached. Please try again tomorrow.
-                  </p>
-                </div>
-              )}
-            </CardContent>
-          </Card>
         </div>
       </div>
-    </div>
+    </ProtectedRoute>
   );
 }

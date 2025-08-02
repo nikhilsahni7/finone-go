@@ -41,7 +41,10 @@ export interface UserProfile {
   email: string;
   role: string;
   user_type: string;
+  expires_at?: string | null;
+  is_active: boolean;
   max_searches_per_day: number;
+  max_exports_per_day: number;
   today_searches: number;
   created_at: string;
   updated_at: string;
@@ -71,7 +74,7 @@ export async function apiCall<T = any>(
   options: RequestInit = {}
 ): Promise<T> {
   const token =
-    typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -90,7 +93,17 @@ export async function apiCall<T = any>(
   const data = await response.json();
 
   if (!response.ok) {
-    throw new ApiError(response.status, data.message || "API request failed");
+    // Handle 401 errors by clearing auth state
+    if (response.status === 401) {
+      clearAuth();
+      if (typeof window !== "undefined") {
+        window.location.href = "/user/login";
+      }
+    }
+    throw new ApiError(
+      response.status,
+      data.error || data.message || "API request failed"
+    );
   }
 
   return data;
@@ -153,12 +166,23 @@ export async function exportSearchResults(
 
 export function isAuthenticated(): boolean {
   if (typeof window === "undefined") return false;
-  return !!localStorage.getItem("token");
+  const token = localStorage.getItem("access_token");
+  const expiresAt = localStorage.getItem("token_expires_at");
+
+  if (!token || !expiresAt) return false;
+
+  // Check if token is expired
+  if (new Date(expiresAt) <= new Date()) {
+    clearAuth();
+    return false;
+  }
+
+  return true;
 }
 
 export function getToken(): string | null {
   if (typeof window === "undefined") return null;
-  return localStorage.getItem("token");
+  return localStorage.getItem("access_token");
 }
 
 export function getUser(): any {
@@ -169,6 +193,10 @@ export function getUser(): any {
 
 export function clearAuth(): void {
   if (typeof window === "undefined") return;
-  localStorage.removeItem("token");
+  localStorage.removeItem("access_token");
+  localStorage.removeItem("token_expires_at");
+  localStorage.removeItem("session_id");
   localStorage.removeItem("user");
+  // Clear cookie
+  document.cookie = "token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC;";
 }
