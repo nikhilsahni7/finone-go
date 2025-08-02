@@ -591,9 +591,231 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
             </div>
           )}
 
-          {/* Search Results Summary */}
+          {/* Search Form - Fixed Position */}
+          <Card className="shadow-sm mb-6">
+            <CardHeader>
+              <div className="flex items-center">
+                <Search className="w-5 h-5 text-blue-600 mr-2" />
+                <CardTitle className="text-lg text-gray-900">
+                  Customer Search
+                </CardTitle>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <form
+                onSubmit={(e) => handleSearch(e, false)}
+                className="space-y-6"
+              >
+                {/* Search Logic */}
+                <div className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg">
+                  <span className="text-sm font-medium text-gray-700">
+                    Search Logic:
+                  </span>
+                  <select
+                    value={searchLogic}
+                    onChange={(e) =>
+                      setSearchLogic(e.target.value as "AND" | "OR")
+                    }
+                    className="border border-gray-300 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="AND">AND</option>
+                    <option value="OR">OR</option>
+                  </select>
+                  <span className="text-sm text-gray-600">
+                    {searchLogic === "AND"
+                      ? "All filled fields must match (precise search)"
+                      : "Any field can match (broader search)"}
+                  </span>
+                </div>
+
+                {/* Search Fields */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="customerName"
+                      className="text-sm font-medium text-gray-700"
+                    >
+                      Customer Name
+                    </Label>
+                    <Input
+                      id="customerName"
+                      placeholder="Enter customer name"
+                      value={searchCriteria.customerName}
+                      onChange={(e) =>
+                        handleInputChange("customerName", e.target.value)
+                      }
+                      className="focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="fatherName"
+                      className="text-sm font-medium text-gray-700"
+                    >
+                      Father Name
+                    </Label>
+                    <Input
+                      id="fatherName"
+                      placeholder="Enter father's name"
+                      value={searchCriteria.fatherName}
+                      onChange={(e) =>
+                        handleInputChange("fatherName", e.target.value)
+                      }
+                      className="focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="mobileNumber"
+                      className="text-sm font-medium text-gray-700"
+                    >
+                      Mobile Number
+                    </Label>
+                    <Input
+                      id="mobileNumber"
+                      placeholder="Enter mobile number"
+                      value={searchCriteria.mobileNumber}
+                      onChange={(e) =>
+                        handleInputChange("mobileNumber", e.target.value)
+                      }
+                      className="focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="alternateNumber"
+                      className="text-sm font-medium text-gray-700"
+                    >
+                      Alternate Number
+                    </Label>
+                    <Input
+                      id="alternateNumber"
+                      placeholder="Enter alternate number"
+                      value={searchCriteria.alternateNumber}
+                      onChange={(e) =>
+                        handleInputChange("alternateNumber", e.target.value)
+                      }
+                      className="focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="emailAddress"
+                      className="text-sm font-medium text-gray-700"
+                    >
+                      Email Address
+                    </Label>
+                    <Input
+                      id="emailAddress"
+                      placeholder="Enter email address"
+                      value={searchCriteria.emailAddress}
+                      onChange={(e) =>
+                        handleInputChange("emailAddress", e.target.value)
+                      }
+                      className="focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="masterId"
+                      className="text-sm font-medium text-gray-700"
+                    >
+                      Master ID
+                    </Label>
+                    <Input
+                      id="masterId"
+                      placeholder="Enter Master ID"
+                      value={searchCriteria.masterId}
+                      onChange={(e) =>
+                        handleInputChange("masterId", e.target.value)
+                      }
+                      className="focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="address"
+                      className="text-sm font-medium text-gray-700"
+                    >
+                      Address
+                    </Label>
+                    <Input
+                      id="address"
+                      placeholder="Enter address or location"
+                      value={searchCriteria.address}
+                      onChange={(e) =>
+                        handleInputChange("address", e.target.value)
+                      }
+                      className="focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label
+                      htmlFor="circle"
+                      className="text-sm font-medium text-gray-700"
+                    >
+                      Circle
+                    </Label>
+                    <Input
+                      id="circle"
+                      placeholder="Enter circle (e.g., AIRTEL DELHI)"
+                      value={searchCriteria.circle}
+                      onChange={(e) =>
+                        handleInputChange("circle", e.target.value)
+                      }
+                      className="focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+
+                {/* Search Tip */}
+                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                  <p className="text-sm text-blue-800">
+                    <strong>Search Tip:</strong>
+                    {searchLogic === "OR"
+                      ? " OR logic finds records where ANY field matches your search terms (broader results)."
+                      : " AND logic finds records where ALL filled fields must match your search terms (precise results)."}
+                    Fill any combination of fields above. Circle field helps
+                    filter by telecom circle (e.g., AIRTEL DELHI).
+                  </p>
+                </div>
+
+                <Button
+                  type="submit"
+                  className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 text-lg font-medium transition-colors"
+                  disabled={isLoading || remainingSearches <= 0}
+                >
+                  {isLoading ? (
+                    <div className="flex items-center">
+                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                      Searching...
+                    </div>
+                  ) : remainingSearches <= 0 ? (
+                    <>
+                      <AlertCircle className="w-5 h-5 mr-2" />
+                      Daily Limit Reached
+                    </>
+                  ) : (
+                    <>
+                      <Search className="w-5 h-5 mr-2" />
+                      Search ({remainingSearches} remaining)
+                    </>
+                  )}
+                </Button>
+              </form>
+            </CardContent>
+          </Card>
+
+          {/* Search Results - Appears Below Search Form */}
           {searchResults.length > 0 && (
-            <Card className="mb-6 shadow-sm">
+            <Card className="shadow-sm">
               <CardHeader className="pb-4">
                 <div className="flex items-center justify-between">
                   <div>
@@ -863,228 +1085,6 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
               </CardContent>
             </Card>
           )}
-
-          {/* Search Form */}
-          <Card className="shadow-sm">
-            <CardHeader>
-              <div className="flex items-center">
-                <Search className="w-5 h-5 text-blue-600 mr-2" />
-                <CardTitle className="text-lg text-gray-900">
-                  Customer Search
-                </CardTitle>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <form
-                onSubmit={(e) => handleSearch(e, false)}
-                className="space-y-6"
-              >
-                {/* Search Logic */}
-                <div className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg">
-                  <span className="text-sm font-medium text-gray-700">
-                    Search Logic:
-                  </span>
-                  <select
-                    value={searchLogic}
-                    onChange={(e) =>
-                      setSearchLogic(e.target.value as "AND" | "OR")
-                    }
-                    className="border border-gray-300 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="AND">AND</option>
-                    <option value="OR">OR</option>
-                  </select>
-                  <span className="text-sm text-gray-600">
-                    {searchLogic === "AND"
-                      ? "All filled fields must match (precise search)"
-                      : "Any field can match (broader search)"}
-                  </span>
-                </div>
-
-                {/* Search Fields */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="customerName"
-                      className="text-sm font-medium text-gray-700"
-                    >
-                      Customer Name
-                    </Label>
-                    <Input
-                      id="customerName"
-                      placeholder="Enter customer name"
-                      value={searchCriteria.customerName}
-                      onChange={(e) =>
-                        handleInputChange("customerName", e.target.value)
-                      }
-                      className="focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="fatherName"
-                      className="text-sm font-medium text-gray-700"
-                    >
-                      Father Name
-                    </Label>
-                    <Input
-                      id="fatherName"
-                      placeholder="Enter father's name"
-                      value={searchCriteria.fatherName}
-                      onChange={(e) =>
-                        handleInputChange("fatherName", e.target.value)
-                      }
-                      className="focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="mobileNumber"
-                      className="text-sm font-medium text-gray-700"
-                    >
-                      Mobile Number
-                    </Label>
-                    <Input
-                      id="mobileNumber"
-                      placeholder="Enter mobile number"
-                      value={searchCriteria.mobileNumber}
-                      onChange={(e) =>
-                        handleInputChange("mobileNumber", e.target.value)
-                      }
-                      className="focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="alternateNumber"
-                      className="text-sm font-medium text-gray-700"
-                    >
-                      Alternate Number
-                    </Label>
-                    <Input
-                      id="alternateNumber"
-                      placeholder="Enter alternate number"
-                      value={searchCriteria.alternateNumber}
-                      onChange={(e) =>
-                        handleInputChange("alternateNumber", e.target.value)
-                      }
-                      className="focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="emailAddress"
-                      className="text-sm font-medium text-gray-700"
-                    >
-                      Email Address
-                    </Label>
-                    <Input
-                      id="emailAddress"
-                      placeholder="Enter email address"
-                      value={searchCriteria.emailAddress}
-                      onChange={(e) =>
-                        handleInputChange("emailAddress", e.target.value)
-                      }
-                      className="focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="masterId"
-                      className="text-sm font-medium text-gray-700"
-                    >
-                      Master ID
-                    </Label>
-                    <Input
-                      id="masterId"
-                      placeholder="Enter Master ID"
-                      value={searchCriteria.masterId}
-                      onChange={(e) =>
-                        handleInputChange("masterId", e.target.value)
-                      }
-                      className="focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="address"
-                      className="text-sm font-medium text-gray-700"
-                    >
-                      Address
-                    </Label>
-                    <Input
-                      id="address"
-                      placeholder="Enter address or location"
-                      value={searchCriteria.address}
-                      onChange={(e) =>
-                        handleInputChange("address", e.target.value)
-                      }
-                      className="focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-
-                  <div className="space-y-2">
-                    <Label
-                      htmlFor="circle"
-                      className="text-sm font-medium text-gray-700"
-                    >
-                      Circle
-                    </Label>
-                    <Input
-                      id="circle"
-                      placeholder="Enter circle (e.g., AIRTEL DELHI)"
-                      value={searchCriteria.circle}
-                      onChange={(e) =>
-                        handleInputChange("circle", e.target.value)
-                      }
-                      className="focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                </div>
-
-                {/* Search Tip */}
-                <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                  <p className="text-sm text-blue-800">
-                    <strong>Search Tip:</strong>
-                    {searchLogic === "OR"
-                      ? " OR logic finds records where ANY field matches your search terms (broader results)."
-                      : " AND logic finds records where ALL filled fields must match your search terms (precise results)."}
-                    Fill any combination of fields above. Circle field helps
-                    filter by telecom circle (e.g., AIRTEL DELHI).
-                  </p>
-                </div>
-
-                <Button
-                  type="submit"
-                  className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 text-lg font-medium transition-colors"
-                  disabled={isLoading || remainingSearches <= 0}
-                >
-                  {isLoading ? (
-                    <div className="flex items-center">
-                      <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                      Searching...
-                    </div>
-                  ) : remainingSearches <= 0 ? (
-                    <>
-                      <AlertCircle className="w-5 h-5 mr-2" />
-                      Daily Limit Reached
-                    </>
-                  ) : (
-                    <>
-                      <Search className="w-5 h-5 mr-2" />
-                      Search ({remainingSearches} remaining)
-                    </>
-                  )}
-                </Button>
-              </form>
-            </CardContent>
-          </Card>
         </div>
 
         {/* Right Panel - Daily Usage */}

@@ -6,139 +6,417 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import { BarChart3, Search, Shield, Users } from "lucide-react";
+import {
+  ArrowRight,
+  BarChart3,
+  CheckCircle,
+  Database,
+  FileText,
+  Lock,
+  Search,
+  Users,
+} from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-      <div className="container mx-auto px-4 py-16">
-        {/* Header */}
-        <div className="text-center mb-16">
-          <h1 className="text-5xl font-bold text-gray-900 mb-4">
-            Finone Search System
-          </h1>
-          <p className="text-xl text-gray-600 max-w-2xl mx-auto">
-            Advanced search and user management platform for financial data
-            analysis
-          </p>
+    <div className="min-h-screen bg-white">
+      {/* Header */}
+      <header className="bg-white border-b border-gray-200 sticky top-0 z-50">
+        <div className="max-w-7xl mx-auto px-6 lg:px-8">
+          <div className="flex justify-between items-center py-4">
+            <div className="flex items-center space-x-3">
+              <Image
+                src="/logo-final.png"
+                alt="FinnOne Logo"
+                width={120}
+                height={35}
+                className="h-12 w-auto"
+              />
+            </div>
+            <div className="flex items-center space-x-6">
+              <nav className="hidden md:flex items-center space-x-8">
+                <Link
+                  href="/"
+                  className="text-gray-700 hover:text-gray-900 font-medium transition-colors"
+                >
+                  Home
+                </Link>
+                <Link
+                  href="#features"
+                  className="text-gray-700 hover:text-gray-900 font-medium transition-colors"
+                >
+                  Features
+                </Link>
+              </nav>
+              <Link href="/user/login">
+                <Button className="bg-blue-600 hover:bg-blue-700 shadow-sm">
+                  <Users className="mr-2 h-4 w-4" />
+                  User Portal
+                </Button>
+              </Link>
+            </div>
+          </div>
         </div>
+      </header>
 
-        {/* Feature Cards */}
-        <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6 mb-16">
-          <Card className="text-center">
-            <CardHeader>
-              <Search className="w-12 h-12 mx-auto text-blue-600 mb-2" />
-              <CardTitle>Advanced Search</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <CardDescription>
-                Powerful search capabilities across multiple data points
-              </CardDescription>
-            </CardContent>
-          </Card>
+      {/* Hero Section */}
+      <section className="relative py-24 px-6 lg:px-8 overflow-hidden">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid lg:grid-cols-2 gap-12 items-center">
+            {/* Left Column - Content */}
+            <div className="space-y-8">
+              <div className="space-y-6">
+                <h1 className="text-5xl lg:text-6xl font-bold text-gray-900 leading-tight">
+                  Customer Data Management
+                  <span className="block text-blue-600">Made Simple</span>
+                </h1>
 
-          <Card className="text-center">
-            <CardHeader>
-              <Users className="w-12 h-12 mx-auto text-green-600 mb-2" />
-              <CardTitle>User Management</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <CardDescription>
-                Comprehensive user administration and access control
-              </CardDescription>
-            </CardContent>
-          </Card>
+                <p className="text-xl text-gray-600 leading-relaxed max-w-2xl">
+                  Secure, efficient, and user-friendly platform for managing
+                  customer information, searching records, and generating
+                  insights.
+                </p>
+              </div>
 
-          <Card className="text-center">
-            <CardHeader>
-              <Shield className="w-12 h-12 mx-auto text-purple-600 mb-2" />
-              <CardTitle>Secure Platform</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <CardDescription>
-                Enterprise-grade security with role-based permissions
-              </CardDescription>
-            </CardContent>
-          </Card>
-
-          <Card className="text-center">
-            <CardHeader>
-              <BarChart3 className="w-12 h-12 mx-auto text-orange-600 mb-2" />
-              <CardTitle>Analytics</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <CardDescription>
-                Real-time analytics and reporting dashboard
-              </CardDescription>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Login Options */}
-        <div className="max-w-4xl mx-auto">
-          <div className="grid md:grid-cols-2 gap-8">
-            {/* User Login Card */}
-            <Card className="bg-white shadow-lg">
-              <CardHeader className="text-center">
-                <Users className="w-16 h-16 mx-auto text-blue-600 mb-4" />
-                <CardTitle className="text-2xl">User Portal</CardTitle>
-                <CardDescription>
-                  Access your personal dashboard and search data
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <h4 className="font-medium">Features:</h4>
-                  <ul className="text-sm text-gray-600 space-y-1">
-                    <li>• Advanced search functionality</li>
-                    <li>• Personal dashboard</li>
-                    <li>• Search history</li>
-                    <li>• Data export</li>
-                  </ul>
-                </div>
-                <Link href="/user/login" className="w-full block">
-                  <Button className="w-full bg-blue-600 hover:bg-blue-700">
-                    Login as User
+              <div className="flex flex-col sm:flex-row gap-4">
+                <Link href="/user/login">
+                  <Button
+                    size="lg"
+                    className="bg-blue-600 hover:bg-blue-700 text-lg px-8 py-4 shadow-lg"
+                  >
+                    Start Searching
+                    <ArrowRight className="ml-2 h-5 w-5" />
                   </Button>
                 </Link>
+              </div>
+
+              {/* Stats */}
+              <div className="grid grid-cols-3 gap-8 pt-8">
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-gray-900">50K+</div>
+                  <div className="text-sm text-gray-600">CUSTOMERS</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-gray-900">100%</div>
+                  <div className="text-sm text-gray-600">SECURE</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-2xl font-bold text-gray-900">24/7</div>
+                  <div className="text-sm text-gray-600">ACCESS</div>
+                </div>
+              </div>
+            </div>
+
+            {/* Right Column - Visual */}
+            <div className="relative">
+              <div className="flex justify-center items-center h-full">
+                <Image
+                  src="/logo-final.png"
+                  alt="FinnOne Logo"
+                  width={120}
+                  height={35}
+                  className="h-28 w-auto"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Features Section */}
+      <section id="features" className="py-24 px-6 lg:px-8 bg-gray-50">
+        <div className="max-w-7xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-4xl font-bold text-gray-900 mb-4">
+              Powerful Features
+            </h2>
+            <p className="text-xl text-gray-600 max-w-3xl mx-auto">
+              Everything you need for efficient customer data management and
+              search operations
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+            {/* Search Feature */}
+            <Card className="bg-white border-0 shadow-sm hover:shadow-md transition-shadow">
+              <CardHeader className="pb-4">
+                <div className="flex items-center space-x-3">
+                  <div className="p-3 bg-blue-100 rounded-xl">
+                    <Search className="h-6 w-6 text-blue-600" />
+                  </div>
+                  <CardTitle className="text-gray-900">
+                    Advanced Search
+                  </CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <CardDescription className="text-gray-600">
+                  Search customers by mobile number, name, email, or address
+                  with real-time results.
+                </CardDescription>
+                <div className="space-y-3">
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Multiple search criteria
+                  </div>
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Instant results
+                  </div>
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Highlighted matches
+                  </div>
+                </div>
               </CardContent>
             </Card>
 
-            {/* Admin Login Card */}
-            <Card className="bg-white shadow-lg">
-              <CardHeader className="text-center">
-                <Shield className="w-16 h-16 mx-auto text-red-600 mb-4" />
-                <CardTitle className="text-2xl">Admin Portal</CardTitle>
-                <CardDescription>
-                  Manage users, system settings, and analytics
-                </CardDescription>
+            {/* Data Management */}
+            <Card className="bg-white border-0 shadow-sm hover:shadow-md transition-shadow">
+              <CardHeader className="pb-4">
+                <div className="flex items-center space-x-3">
+                  <div className="p-3 bg-purple-100 rounded-xl">
+                    <Database className="h-6 w-6 text-purple-600" />
+                  </div>
+                  <CardTitle className="text-gray-900">
+                    Data Management
+                  </CardTitle>
+                </div>
               </CardHeader>
               <CardContent className="space-y-4">
-                <div className="space-y-2">
-                  <h4 className="font-medium">Features:</h4>
-                  <ul className="text-sm text-gray-600 space-y-1">
-                    <li>• User management</li>
-                    <li>• System administration</li>
-                    <li>• Analytics dashboard</li>
-                    <li>• Data import/export</li>
-                  </ul>
+                <CardDescription className="text-gray-600">
+                  Access and manage customer data with validation and error
+                  handling.
+                </CardDescription>
+                <div className="space-y-3">
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Secure data access
+                  </div>
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Data validation
+                  </div>
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Error tracking
+                  </div>
                 </div>
-                <Link href="/admin/login" className="w-full block">
-                  <Button className="w-full bg-red-600 hover:bg-red-700">
-                    Login as Admin
-                  </Button>
-                </Link>
+              </CardContent>
+            </Card>
+
+            {/* Analytics */}
+            <Card className="bg-white border-0 shadow-sm hover:shadow-md transition-shadow">
+              <CardHeader className="pb-4">
+                <div className="flex items-center space-x-3">
+                  <div className="p-3 bg-orange-100 rounded-xl">
+                    <BarChart3 className="h-6 w-6 text-orange-600" />
+                  </div>
+                  <CardTitle className="text-gray-900">
+                    Analytics & Reports
+                  </CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <CardDescription className="text-gray-600">
+                  Track usage statistics and monitor system performance.
+                </CardDescription>
+                <div className="space-y-3">
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Usage analytics
+                  </div>
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Performance metrics
+                  </div>
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Activity logs
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Security */}
+            <Card className="bg-white border-0 shadow-sm hover:shadow-md transition-shadow">
+              <CardHeader className="pb-4">
+                <div className="flex items-center space-x-3">
+                  <div className="p-3 bg-red-100 rounded-xl">
+                    <Lock className="h-6 w-6 text-red-600" />
+                  </div>
+                  <CardTitle className="text-gray-900">
+                    Security & Access
+                  </CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <CardDescription className="text-gray-600">
+                  Role-based access control with secure authentication.
+                </CardDescription>
+                <div className="space-y-3">
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Role-based access
+                  </div>
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Secure authentication
+                  </div>
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Data encryption
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Export */}
+            <Card className="bg-white border-0 shadow-sm hover:shadow-md transition-shadow">
+              <CardHeader className="pb-4">
+                <div className="flex items-center space-x-3">
+                  <div className="p-3 bg-teal-100 rounded-xl">
+                    <FileText className="h-6 w-6 text-teal-600" />
+                  </div>
+                  <CardTitle className="text-gray-900">
+                    Export & Reports
+                  </CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <CardDescription className="text-gray-600">
+                  Export search results and generate comprehensive reports.
+                </CardDescription>
+                <div className="space-y-3">
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    CSV export
+                  </div>
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Custom reports
+                  </div>
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Data formatting
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* User Management */}
+            <Card className="bg-white border-0 shadow-sm hover:shadow-md transition-shadow">
+              <CardHeader className="pb-4">
+                <div className="flex items-center space-x-3">
+                  <div className="p-3 bg-green-100 rounded-xl">
+                    <Users className="h-6 w-6 text-green-600" />
+                  </div>
+                  <CardTitle className="text-gray-900">
+                    User Management
+                  </CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <CardDescription className="text-gray-600">
+                  Manage your account and track usage.
+                </CardDescription>
+                <div className="space-y-3">
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Account management
+                  </div>
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Usage tracking
+                  </div>
+                  <div className="flex items-center text-sm text-gray-700">
+                    <CheckCircle className="mr-3 h-4 w-4 text-green-500" />
+                    Personalized dashboard
+                  </div>
+                </div>
               </CardContent>
             </Card>
           </div>
         </div>
+      </section>
 
-        {/* Footer */}
-        <div className="text-center mt-16 text-gray-500">
-          <p>&copy; 2024 Finone Search System. All rights reserved.</p>
+      {/* CTA Section */}
+      <section className="py-24 px-6 lg:px-8 bg-blue-600">
+        <div className="max-w-4xl mx-auto text-center">
+          <h2 className="text-4xl font-bold text-white mb-6">
+            Ready to Get Started?
+          </h2>
+          <p className="text-xl text-blue-100 mb-8">
+            Access the user portal and start managing customer data efficiently
+          </p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center">
+            <Link href="/user/login">
+              <Button
+                size="lg"
+                variant="secondary"
+                className="text-lg px-8 py-4 bg-white text-blue-600 hover:bg-gray-50"
+              >
+                <Users className="mr-2 h-5 w-5" />
+                User Portal
+                <ArrowRight className="ml-2 h-5 w-5" />
+              </Button>
+            </Link>
+          </div>
         </div>
-      </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="bg-gray-900 text-white py-16 px-6 lg:px-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+            <div>
+              <div className="flex items-center space-x-3 mb-6">
+                <Image
+                  src="/logo-finone (1).png"
+                  alt="FinnOne Logo"
+                  width={140}
+                  height={50}
+                  className="h-10 w-auto"
+                />
+              </div>
+              <p className="text-gray-300 leading-relaxed">
+                Secure and efficient customer data management platform.
+              </p>
+            </div>
+            <div>
+              <h4 className="text-lg font-semibold mb-6">Quick Links</h4>
+              <div className="space-y-3">
+                <Link
+                  href="/user/login"
+                  className="block text-gray-300 hover:text-white transition-colors"
+                >
+                  User Portal
+                </Link>
+                <Link
+                  href="#features"
+                  className="block text-gray-300 hover:text-white transition-colors"
+                >
+                  Features
+                </Link>
+              </div>
+            </div>
+            <div>
+              <h4 className="text-lg font-semibold mb-6">Features</h4>
+              <div className="space-y-3 text-gray-300">
+                <div>Customer Search</div>
+                <div>Data Access</div>
+                <div>Export Reports</div>
+                <div>User Management</div>
+              </div>
+            </div>
+          </div>
+          <div className="border-t border-gray-800 mt-12 pt-8 text-center text-gray-400">
+            <p>&copy; 2025 FinOne. All rights reserved.</p>
+          </div>
+        </div>
+      </footer>
     </div>
   );
 }
