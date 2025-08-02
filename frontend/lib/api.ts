@@ -10,6 +10,7 @@ export interface ApiResponse<T = any> {
 export interface SearchRequest {
   query: string;
   fields?: string[];
+  field_queries?: { [key: string]: string };
   logic?: "AND" | "OR";
   match_type?: "partial" | "full";
   limit?: number;

@@ -21,13 +21,14 @@ type Person struct {
 
 // SearchRequest represents a search request payload
 type SearchRequest struct {
-	Query         string   `json:"query" validate:"required"`
-	Fields        []string `json:"fields" validate:"required"`        // mobile, name, fname, address, email, circle
-	Logic         string   `json:"logic" validate:"oneof=AND OR"`     // AND or OR logic
-	SearchWithin  bool     `json:"search_within"`                     // Search within previous results
-	MatchType     string   `json:"match_type" validate:"oneof=partial full"` // partial or full match
-	Limit         int      `json:"limit" validate:"min=1,max=10000"`  // Max results
-	Offset        int      `json:"offset" validate:"min=0"`           // Pagination
+	Query        string            `json:"query" validate:"required"`
+	Fields       []string          `json:"fields" validate:"required"`               // mobile, name, fname, address, email, circle
+	FieldQueries map[string]string `json:"field_queries,omitempty"`                  // Field-specific queries
+	Logic        string            `json:"logic" validate:"oneof=AND OR"`            // AND or OR logic
+	SearchWithin bool              `json:"search_within"`                            // Search within previous results
+	MatchType    string            `json:"match_type" validate:"oneof=partial full"` // partial or full match
+	Limit        int               `json:"limit" validate:"min=1,max=10000"`         // Max results
+	Offset       int               `json:"offset" validate:"min=0"`                  // Pagination
 }
 
 // SearchResponse represents a search response
@@ -41,23 +42,23 @@ type SearchResponse struct {
 
 // CSVImportRequest represents a CSV import request
 type CSVImportRequest struct {
-	FilePath    string `json:"file_path" validate:"required"`
-	BatchSize   int    `json:"batch_size" validate:"min=1000,max=1000000"`
-	HasHeader   bool   `json:"has_header"`
-	Delimiter   string `json:"delimiter"`
-	FieldMap    map[string]int `json:"field_map"` // Maps CSV column names to field positions
+	FilePath  string         `json:"file_path" validate:"required"`
+	BatchSize int            `json:"batch_size" validate:"min=1000,max=1000000"`
+	HasHeader bool           `json:"has_header"`
+	Delimiter string         `json:"delimiter"`
+	FieldMap  map[string]int `json:"field_map"` // Maps CSV column names to field positions
 }
 
 // CSVImportResponse represents a CSV import response
 type CSVImportResponse struct {
-	JobID         string    `json:"job_id"`
-	Status        string    `json:"status"`
-	TotalRows     int       `json:"total_rows"`
-	ProcessedRows int       `json:"processed_rows"`
-	ErrorRows     int       `json:"error_rows"`
-	StartTime     time.Time `json:"start_time"`
+	JobID         string     `json:"job_id"`
+	Status        string     `json:"status"`
+	TotalRows     int        `json:"total_rows"`
+	ProcessedRows int        `json:"processed_rows"`
+	ErrorRows     int        `json:"error_rows"`
+	StartTime     time.Time  `json:"start_time"`
 	EndTime       *time.Time `json:"end_time,omitempty"`
-	Errors        []string  `json:"errors,omitempty"`
+	Errors        []string   `json:"errors,omitempty"`
 }
 
 // SearchPerformance represents search performance metrics in ClickHouse
@@ -72,25 +73,25 @@ type SearchPerformance struct {
 
 // ExportRequest represents an export request
 type ExportRequest struct {
-	SearchID   *string `json:"search_id,omitempty"`   // Export specific search results
-	Query      *SearchRequest `json:"query,omitempty"` // Or provide new search query
-	Format     string  `json:"format" validate:"oneof=csv json"`
-	FileName   string  `json:"file_name"`
+	SearchID *string        `json:"search_id,omitempty"` // Export specific search results
+	Query    *SearchRequest `json:"query,omitempty"`     // Or provide new search query
+	Format   string         `json:"format" validate:"oneof=csv json"`
+	FileName string         `json:"file_name"`
 }
 
 // ExportResponse represents an export response
 type ExportResponse struct {
-	DownloadURL   string    `json:"download_url"`
-	FileName      string    `json:"file_name"`
-	FileSize      int64     `json:"file_size"`
-	RowCount      int       `json:"row_count"`
-	ExpiresAt     time.Time `json:"expires_at"`
+	DownloadURL string    `json:"download_url"`
+	FileName    string    `json:"file_name"`
+	FileSize    int64     `json:"file_size"`
+	RowCount    int       `json:"row_count"`
+	ExpiresAt   time.Time `json:"expires_at"`
 }
 
 // BatchInsertResult represents the result of a batch insert operation
 type BatchInsertResult struct {
-	SuccessCount int      `json:"success_count"`
-	ErrorCount   int      `json:"error_count"`
-	Errors       []string `json:"errors,omitempty"`
+	SuccessCount int           `json:"success_count"`
+	ErrorCount   int           `json:"error_count"`
+	Errors       []string      `json:"errors,omitempty"`
 	Duration     time.Duration `json:"duration"`
 }

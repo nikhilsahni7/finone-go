@@ -4,6 +4,7 @@ import (
 	"finone-search-system/models"
 	"finone-search-system/services"
 	"finone-search-system/utils"
+	"fmt"
 	"net/http"
 	"os"
 	"strconv"
@@ -42,6 +43,10 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		return
 	}
 
+	// Debug logging to see what we received
+	utils.LogInfo(fmt.Sprintf("Raw request received - Query: %s, Fields: %v, FieldQueries: %v, Logic: %s",
+		req.Query, req.Fields, req.FieldQueries, req.Logic))
+
 	// Set defaults
 	if req.Limit == 0 {
 		req.Limit = 1000
@@ -55,6 +60,10 @@ func (h *SearchHandler) Search(c *gin.Context) {
 	if req.MatchType == "" {
 		req.MatchType = "partial"
 	}
+
+	// Debug logging
+	utils.LogInfo(fmt.Sprintf("Search request - Query: %s, Logic: %s, Fields: %v, Limit: %d",
+		req.Query, req.Logic, req.Fields, req.Limit))
 
 	response, err := h.searchService.Search(userID, &req)
 	if err != nil {

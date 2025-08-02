@@ -92,39 +92,58 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 	conditions := []string{}
 	args := []interface{}{}
 
-	// Build conditions for each field
-	for _, field := range req.Fields {
-		if !s.isValidField(field) {
-			continue
-		}
+	// Check if we have field-specific queries (preferred method)
+	if len(req.FieldQueries) > 0 {
+		// Field-specific search: each field has its own query value
+		for field, value := range req.FieldQueries {
+			if !s.isValidField(field) {
+				continue
+			}
 
-		var condition string
-		if req.MatchType == "full" {
-			// Exact match
-			condition = fmt.Sprintf("%s = ?", field)
-			args = append(args, req.Query)
-		} else {
-			// Partial match - using lower() for case-insensitive search in ClickHouse
-			condition = fmt.Sprintf("lower(%s) LIKE lower(?)", field)
-			args = append(args, "%"+req.Query+"%")
-		}
+			if strings.TrimSpace(value) == "" {
+				continue
+			}
 
-		conditions = append(conditions, condition)
+			var condition string
+			if req.MatchType == "full" {
+				condition = fmt.Sprintf("%s = ?", field)
+				args = append(args, value)
+			} else {
+				condition = fmt.Sprintf("lower(%s) LIKE lower(?)", field)
+				args = append(args, "%"+value+"%")
+			}
+			conditions = append(conditions, condition)
+		}
+	} else if len(req.Fields) > 0 {
+		// Legacy method: single query across multiple fields
+		for _, field := range req.Fields {
+			if !s.isValidField(field) {
+				continue
+			}
+
+			var condition string
+			if req.MatchType == "full" {
+				condition = fmt.Sprintf("%s = ?", field)
+				args = append(args, req.Query)
+			} else {
+				condition = fmt.Sprintf("lower(%s) LIKE lower(?)", field)
+				args = append(args, "%"+req.Query+"%")
+			}
+			conditions = append(conditions, condition)
+		}
 	}
 
+	// Default search across all fields if no specific fields provided
 	if len(conditions) == 0 {
-		// Default search across all text fields
 		if req.MatchType == "full" {
 			condition := "(mobile = ? OR name = ? OR fname = ? OR address = ? OR alt = ? OR circle = ? OR email = ?)"
 			conditions = append(conditions, condition)
-			// Add the query value for each field
 			for i := 0; i < 7; i++ {
 				args = append(args, req.Query)
 			}
 		} else {
 			condition := "(lower(mobile) LIKE lower(?) OR lower(name) LIKE lower(?) OR lower(fname) LIKE lower(?) OR lower(address) LIKE lower(?) OR lower(alt) LIKE lower(?) OR lower(circle) LIKE lower(?) OR lower(email) LIKE lower(?))"
 			conditions = append(conditions, condition)
-			// Add the query value with wildcards for each field
 			queryWithWildcard := "%" + req.Query + "%"
 			for i := 0; i < 7; i++ {
 				args = append(args, queryWithWildcard)
@@ -152,6 +171,11 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 		query += fmt.Sprintf(" OFFSET %d", req.Offset)
 	}
 
+	// Debug logging
+	utils.LogInfo(fmt.Sprintf("Generated SQL query - Logic: %s, Operator: %s, Conditions: %d",
+		req.Logic, logicOperator, len(conditions)))
+	utils.LogInfo(fmt.Sprintf("SQL Query: %s", query))
+
 	return query, args
 }
 
@@ -162,39 +186,58 @@ func (s *SearchService) getTotalCount(req *models.SearchRequest, ctx context.Con
 	conditions := []string{}
 	args := []interface{}{}
 
-	// Build conditions for each field (same logic as buildSearchQuery)
-	for _, field := range req.Fields {
-		if !s.isValidField(field) {
-			continue
-		}
+	// Check if we have field-specific queries (preferred method)
+	if len(req.FieldQueries) > 0 {
+		// Field-specific search: each field has its own query value
+		for field, value := range req.FieldQueries {
+			if !s.isValidField(field) {
+				continue
+			}
 
-		var condition string
-		if req.MatchType == "full" {
-			// Exact match
-			condition = fmt.Sprintf("%s = ?", field)
-			args = append(args, req.Query)
-		} else {
-			// Partial match - using lower() for case-insensitive search in ClickHouse
-			condition = fmt.Sprintf("lower(%s) LIKE lower(?)", field)
-			args = append(args, "%"+req.Query+"%")
-		}
+			if strings.TrimSpace(value) == "" {
+				continue
+			}
 
-		conditions = append(conditions, condition)
+			var condition string
+			if req.MatchType == "full" {
+				condition = fmt.Sprintf("%s = ?", field)
+				args = append(args, value)
+			} else {
+				condition = fmt.Sprintf("lower(%s) LIKE lower(?)", field)
+				args = append(args, "%"+value+"%")
+			}
+			conditions = append(conditions, condition)
+		}
+	} else if len(req.Fields) > 0 {
+		// Legacy method: single query across multiple fields
+		for _, field := range req.Fields {
+			if !s.isValidField(field) {
+				continue
+			}
+
+			var condition string
+			if req.MatchType == "full" {
+				condition = fmt.Sprintf("%s = ?", field)
+				args = append(args, req.Query)
+			} else {
+				condition = fmt.Sprintf("lower(%s) LIKE lower(?)", field)
+				args = append(args, "%"+req.Query+"%")
+			}
+			conditions = append(conditions, condition)
+		}
 	}
 
+	// Default search across all fields if no specific fields provided
 	if len(conditions) == 0 {
-		// Default search across all text fields
 		if req.MatchType == "full" {
 			condition := "(mobile = ? OR name = ? OR fname = ? OR address = ? OR alt = ? OR circle = ? OR email = ?)"
 			conditions = append(conditions, condition)
-			// Add the query value for each field
 			for i := 0; i < 7; i++ {
 				args = append(args, req.Query)
 			}
 		} else {
 			condition := "(lower(mobile) LIKE lower(?) OR lower(name) LIKE lower(?) OR lower(fname) LIKE lower(?) OR lower(address) LIKE lower(?) OR lower(alt) LIKE lower(?) OR lower(circle) LIKE lower(?) OR lower(email) LIKE lower(?))"
 			conditions = append(conditions, condition)
-			// Add the query value with wildcards for each field
 			queryWithWildcard := "%" + req.Query + "%"
 			for i := 0; i < 7; i++ {
 				args = append(args, queryWithWildcard)
