@@ -1,0 +1,159 @@
+# Finone Search System - Manual Test Commands
+# Copy and paste these commands to test the search functionality
+
+# 1. Health Check
+curl -X GET http://localhost:8082/health | jq
+
+# 2. Login to get JWT token
+curl -X POST http://localhost:8082/api/v1/auth/login \
+  -H "Content-Type: application/json" \
+  -d '{
+    "email": "admin@example.com",
+    "password": "admin123"
+  }' | jq
+
+# Save the token from above response, then use it in subsequent requests
+# Replace YOUR_JWT_TOKEN with actual token
+
+# 3. Get database statistics
+curl -X GET http://localhost:8082/api/v1/search/stats \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" | jq
+
+# 4. Basic mobile search (exact match)
+curl -X POST http://localhost:8082/api/v1/search/ \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "9876543210",
+    "fields": ["mobile"],
+    "match_type": "full",
+    "limit": 10
+  }' | jq
+
+# 5. Name partial search
+curl -X POST http://localhost:8082/api/v1/search/ \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "John",
+    "fields": ["name"],
+    "match_type": "partial",
+    "limit": 100
+  }' | jq
+
+# 6. Address search
+curl -X POST http://localhost:8082/api/v1/search/ \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Delhi",
+    "fields": ["address"],
+    "match_type": "partial",
+    "limit": 1000
+  }' | jq
+
+# 7. Multi-field search
+curl -X POST http://localhost:8082/api/v1/search/ \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Singh",
+    "fields": ["name", "fname"],
+    "match_type": "partial",
+    "limit": 5000,
+    "logic": "OR"
+  }' | jq
+
+# 8. Large result set test
+curl -X POST http://localhost:8082/api/v1/search/ \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "a",
+    "match_type": "partial",
+    "limit": 10000
+  }' | jq
+
+# 9. Circle-based search
+curl -X POST http://localhost:8082/api/v1/search/ \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Mumbai",
+    "fields": ["circle"],
+    "match_type": "full",
+    "limit": 10000
+  }' | jq
+
+# 10. Email search
+curl -X POST http://localhost:8082/api/v1/search/ \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "email.com",
+    "fields": ["email"],
+    "match_type": "partial",
+    "limit": 1000
+  }' | jq
+
+# 11. Pagination test (page 1)
+curl -X POST http://localhost:8082/api/v1/search/ \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Kumar",
+    "match_type": "partial",
+    "limit": 1000,
+    "offset": 0
+  }' | jq
+
+# 12. Pagination test (page 2)
+curl -X POST http://localhost:8082/api/v1/search/ \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Kumar",
+    "match_type": "partial",
+    "limit": 1000,
+    "offset": 1000
+  }' | jq
+
+# 13. Performance test - complex query
+curl -X POST http://localhost:8082/api/v1/search/ \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "Sharma",
+    "fields": ["name", "fname", "address"],
+    "match_type": "partial",
+    "limit": 10000,
+    "logic": "OR"
+  }' | jq
+
+# 14. Test search within (first get a search ID from above, then use it)
+# Replace SEARCH_ID_FROM_ABOVE with actual search ID
+curl -X POST http://localhost:8082/api/v1/search/within \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "search_id": "SEARCH_ID_FROM_ABOVE",
+    "query": "Delhi",
+    "fields": ["address"],
+    "match_type": "partial",
+    "limit": 1000
+  }' | jq
+
+# 15. Get specific person by ID (replace with actual ID from search results)
+curl -X GET http://localhost:8082/api/v1/search/person/PERSON_ID \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" | jq
+
+# Performance Monitoring Commands
+# Monitor response times with curl timing
+curl -X POST http://localhost:8082/api/v1/search/ \
+  -H "Authorization: Bearer YOUR_JWT_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "query": "test",
+    "limit": 5000
+  }' \
+  -w "\nTotal Time: %{time_total}s\nConnect Time: %{time_connect}s\nTransfer Time: %{time_starttransfer}s\n" | jq

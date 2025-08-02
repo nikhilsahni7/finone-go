@@ -1,0 +1,252 @@
+[
+  {
+    "success": true,
+    "query": "9876543210",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 22,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "John",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 2231,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "Delhi",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 58,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "Singh",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 107,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "admin",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 486,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "Mumbai",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 283,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "a",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 121,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "Kumar",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 386,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "Sharma",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 303,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "9876543210",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 28,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "Singh",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 122,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "Delhi",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 579,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "Singh",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 702,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "Kumar",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 774,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "Mumbai",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 1025,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "9876",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 1773,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 46,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "   ",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 10109,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 9976,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "!@#$%^&*()",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 10236,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "SELECT * FROM",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 10411,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "nonexistent123456",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 7616,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "Singh",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 109,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "Singh",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 97,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  },
+  {
+    "success": true,
+    "query": "Singh",
+    "total_count": 0,
+    "execution_time": 0,
+    "network_time": 103,
+    "search_id": null,
+    "has_more": false,
+    "results": []
+  }
+]

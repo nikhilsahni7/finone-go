@@ -1,0 +1,33 @@
+server:
+  port: 8082
+  host: "0.0.0.0"
+  timeout: 30s
+
+database:
+  postgres:
+    host: "localhost"
+    port: 5432
+    user: "postgres"
+    password: "rajni.surender1"
+    dbname: "finome_search"
+    sslmode: "disable"
+  clickhouse:
+    host: "localhost"
+    port: 9000
+    user: "default"
+    password: "nikhil"
+    database: "finone_search"
+
+jwt:
+  secret: "your-super-secret-key-change-in-production"
+  expiry: 24h
+
+limits:
+  max_searches_per_day: 500
+  max_exports_per_day: 3
+  max_rows_per_search: 10000
+  max_upload_size: 20GB
+
+csv:
+  batch_size: 200000
+  temp_dir: "/tmp/csv_uploads"
