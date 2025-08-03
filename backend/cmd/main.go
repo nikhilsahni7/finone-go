@@ -143,6 +143,7 @@ func setupRouter() *gin.Engine {
 				admin.GET("/users", userHandler.GetUsers)
 				admin.GET("/users/:id", userHandler.GetUser)
 				admin.PUT("/users/:id", userHandler.UpdateUser)
+				admin.DELETE("/users/:id", userHandler.DeleteUser)
 				admin.GET("/analytics", userHandler.GetUserAnalytics)
 
 				// Session management
@@ -150,6 +151,9 @@ func setupRouter() *gin.Engine {
 				admin.GET("/users/:id/sessions", userHandler.GetUserSessions)
 				admin.DELETE("/users/:id/sessions", userHandler.InvalidateUserSessions)
 				admin.POST("/sessions/cleanup", userHandler.CleanupExpiredSessions)
+
+				// User search history
+				admin.GET("/users/:id/search-history", userHandler.GetUserSearchHistory)
 
 				// Daily reset management
 				admin.POST("/reset/daily-search-counts", userHandler.ResetDailySearchCounts)

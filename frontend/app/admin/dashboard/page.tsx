@@ -3,6 +3,7 @@
 import AdminProtectedRoute from "../../../components/admin-protected-route";
 import AdminTabs from "../../../components/admin-tabs";
 import SessionManagement from "../../../components/session-management";
+import SystemAnalytics from "../../../components/system-analytics";
 import { Button } from "../../../components/ui/button";
 import UserManagement from "../../../components/user-management";
 import { useAdminAuth } from "../../../lib/admin-auth-context";
@@ -20,6 +21,11 @@ export default function AdminDashboard() {
       id: "users",
       label: "User Management",
       component: <UserManagement />,
+    },
+    {
+      id: "analytics",
+      label: "System Analytics",
+      component: <SystemAnalytics />,
     },
   ];
 
@@ -48,7 +54,7 @@ export default function AdminDashboard() {
         {/* Main Content */}
         <div className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
           <div className="px-4 py-6 sm:px-0">
-            <AdminTabs tabs={tabs} defaultTab="sessions" />
+            <AdminTabs tabs={tabs} defaultTab="users" />
           </div>
         </div>
       </div>

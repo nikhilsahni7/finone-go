@@ -2,13 +2,14 @@ package services
 
 import (
 	"crypto/sha256"
-	"fmt"
-	"strings"
-	"time"
 	"finone-search-system/config"
 	"finone-search-system/database"
 	"finone-search-system/models"
 	"finone-search-system/utils"
+	"fmt"
+	"strings"
+	"time"
+
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
 	"golang.org/x/crypto/bcrypt"
@@ -158,6 +159,12 @@ func (s *AuthService) UpdateUser(userID uuid.UUID, req *models.UpdateUserRequest
 		}
 		updates = append(updates, fmt.Sprintf("password_hash = $%d", argIndex))
 		args = append(args, string(hashedPassword))
+		argIndex++
+	}
+
+	if req.UserType != nil {
+		updates = append(updates, fmt.Sprintf("user_type = $%d", argIndex))
+		args = append(args, *req.UserType)
 		argIndex++
 	}
 
@@ -605,4 +612,110 @@ func (s *AuthService) GetUserAnalyticsByID(userID uuid.UUID) (*models.UserAnalyt
 	}
 
 	return &analytics, nil
+}
+
+// GetUserRecentSearches returns recent search history for a user (admin only)
+func (s *AuthService) GetUserRecentSearches(userID uuid.UUID, limit int) ([]models.RecentSearch, error) {
+	if limit <= 0 || limit > 50 {
+		limit = 10 // Default to 10 recent searches
+	}
+
+	query := `
+	SELECT id, search_time, search_query, result_count, execution_time_ms
+	FROM searches
+	WHERE user_id = $1
+	ORDER BY search_time DESC
+	LIMIT $2`
+
+	var searches []models.RecentSearch
+	err := database.PostgresDB.Select(&searches, query, userID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get recent searches: %w", err)
+	}
+
+	return searches, nil
+}
+
+// GetUserAnalyticsWithSearches returns analytics with recent searches for a user (admin only)
+func (s *AuthService) GetUserAnalyticsWithSearches(userID uuid.UUID) (*models.UserAnalyticsWithSearches, error) {
+	// Get basic analytics
+	analytics, err := s.GetUserAnalyticsByID(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get recent searches
+	recentSearches, err := s.GetUserRecentSearches(userID, 10)
+	if err != nil {
+		return nil, err
+	}
+
+	return &models.UserAnalyticsWithSearches{
+		UserAnalytics:  *analytics,
+		RecentSearches: recentSearches,
+	}, nil
+}
+
+// DeleteUser deletes a user and all related data with cascade
+func (s *AuthService) DeleteUser(userID uuid.UUID) error {
+	// Start a transaction to ensure all deletions happen atomically
+	tx, err := database.PostgresDB.Beginx()
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback() // This will be ignored if tx.Commit() succeeds
+
+	// Delete in reverse order of dependencies to avoid foreign key constraints
+
+	// 1. Delete daily usage records
+	_, err = tx.Exec("DELETE FROM daily_usage WHERE user_id = $1", userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete daily usage records: %w", err)
+	}
+
+	// 2. Delete exports (references searches, but ON DELETE SET NULL handles this)
+	_, err = tx.Exec("DELETE FROM exports WHERE user_id = $1", userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete export records: %w", err)
+	}
+
+	// 3. Delete searches
+	_, err = tx.Exec("DELETE FROM searches WHERE user_id = $1", userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete search records: %w", err)
+	}
+
+	// 4. Delete user sessions
+	_, err = tx.Exec("DELETE FROM user_sessions WHERE user_id = $1", userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete user sessions: %w", err)
+	}
+
+	// 5. Delete login records
+	_, err = tx.Exec("DELETE FROM logins WHERE user_id = $1", userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete login records: %w", err)
+	}
+
+	// 6. Finally, delete the user
+	result, err := tx.Exec("DELETE FROM users WHERE id = $1", userID)
+	if err != nil {
+		return fmt.Errorf("failed to delete user: %w", err)
+	}
+
+	rowsAffected, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get rows affected: %w", err)
+	}
+
+	if rowsAffected == 0 {
+		return fmt.Errorf("user not found")
+	}
+
+	// Commit the transaction
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+
+	return nil
 }

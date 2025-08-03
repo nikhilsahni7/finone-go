@@ -200,6 +200,31 @@ func (h *UserHandler) GetUserAnalytics(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"analytics": analytics})
 }
 
+// GetUserSearchHistory handles retrieving user search history (admin only)
+func (h *UserHandler) GetUserSearchHistory(c *gin.Context) {
+	userIDStr := c.Param("id")
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	limitStr := c.DefaultQuery("limit", "10")
+	limit, err := strconv.Atoi(limitStr)
+	if err != nil || limit <= 0 || limit > 50 {
+		limit = 10
+	}
+
+	searches, err := h.authService.GetUserRecentSearches(userID, limit)
+	if err != nil {
+		utils.LogError("Failed to get user search history", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to retrieve search history"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"searches": searches})
+}
+
 // GetMyAnalytics handles retrieving current user's analytics
 func (h *UserHandler) GetMyAnalytics(c *gin.Context) {
 	userIDStr, exists := c.Get("user_id")
@@ -313,5 +338,46 @@ func (h *UserHandler) GetNextResetTime(c *gin.Context) {
 		"next_reset_time":  nextReset.Format("2006-01-02 15:04:05 IST"),
 		"next_reset_unix":  nextReset.Unix(),
 		"time_until_reset": time.Until(nextReset).String(),
+	})
+}
+
+// DeleteUser deletes a user and all related data (admin only)
+func (h *UserHandler) DeleteUser(c *gin.Context) {
+	userIDStr := c.Param("id")
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Check if user exists and get their info for logging
+	user, err := h.authService.GetUserByID(userID)
+	if err != nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	// Prevent deletion of admin users for safety
+	if user.Role == "ADMIN" {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Cannot delete admin users"})
+		return
+	}
+
+	// Delete user and cascade all related data
+	err = h.authService.DeleteUser(userID)
+	if err != nil {
+		utils.LogError("Failed to delete user", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete user"})
+		return
+	}
+
+	utils.LogInfo(fmt.Sprintf("User deleted successfully: %s (%s)", user.Email, user.Name))
+	c.JSON(http.StatusOK, gin.H{
+		"message": "User deleted successfully",
+		"deleted_user": gin.H{
+			"id":    user.ID,
+			"name":  user.Name,
+			"email": user.Email,
+		},
 	})
 }

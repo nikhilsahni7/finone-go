@@ -1,6 +1,7 @@
 "use client";
 
 import { SessionInfo } from "../lib/admin-auth";
+import { formatToIST } from "../lib/time-utils";
 import { Button } from "./ui/button";
 
 interface SessionTableProps {
@@ -17,7 +18,7 @@ export default function SessionTable({
   loading,
 }: SessionTableProps) {
   const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleString();
+    return formatToIST(dateString);
   };
 
   const getSessionStatus = (session: SessionInfo) => {

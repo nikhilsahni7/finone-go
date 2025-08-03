@@ -104,6 +104,7 @@ type UpdateUserRequest struct {
 	Name              *string    `json:"name"`
 	Email             *string    `json:"email"`
 	Password          *string    `json:"password"`
+	UserType          *string    `json:"user_type" validate:"omitempty,oneof=DEMO PERMANENT"`
 	IsActive          *bool      `json:"is_active"`
 	ExpiresAt         *time.Time `json:"expires_at"`
 	MaxSearchesPerDay *int       `json:"max_searches_per_day"`
@@ -139,4 +140,19 @@ type SearchWithinRequest struct {
 	MatchType string   `json:"match_type" validate:"oneof=partial full"`
 	Limit     int      `json:"limit" validate:"min=1,max=10000"`
 	Offset    int      `json:"offset" validate:"min=0"`
+}
+
+// RecentSearch represents a recent search with basic query info
+type RecentSearch struct {
+	ID              uuid.UUID   `json:"id" db:"id"`
+	SearchTime      time.Time   `json:"search_time" db:"search_time"`
+	SearchQuery     interface{} `json:"search_query" db:"search_query"`
+	ResultCount     int         `json:"result_count" db:"result_count"`
+	ExecutionTimeMs int         `json:"execution_time_ms" db:"execution_time_ms"`
+}
+
+// UserAnalyticsWithSearches extends UserAnalytics with recent searches
+type UserAnalyticsWithSearches struct {
+	UserAnalytics
+	RecentSearches []RecentSearch `json:"recent_searches"`
 }
