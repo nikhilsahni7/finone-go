@@ -26,11 +26,16 @@ func NewUserHandler() *UserHandler {
 
 // Login handles user authentication
 func (h *UserHandler) Login(c *gin.Context) {
+	utils.LogInfo(fmt.Sprintf("Login request received from %s", c.ClientIP()))
+	
 	var req models.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		utils.LogError("Invalid login request format", err)
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
 		return
 	}
+
+	utils.LogInfo(fmt.Sprintf("Login attempt for email: %s", req.Email))
 
 	response, err := h.authService.Login(req.Email, req.Password)
 	if err != nil {

@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 
 	"finone-search-system/config"
@@ -78,8 +79,17 @@ func setupRouter() *gin.Engine {
 	// Global middleware
 	router.Use(utils.GinLogger())
 	router.Use(utils.GinRecovery())
+	
+	// Debug middleware to see all requests
+	router.Use(func(c *gin.Context) {
+		utils.LogInfo(fmt.Sprintf("Request: %s %s from %s", c.Request.Method, c.Request.URL.Path, c.ClientIP()))
+		c.Next()
+		utils.LogInfo(fmt.Sprintf("Response: %d for %s %s", c.Writer.Status(), c.Request.Method, c.Request.URL.Path))
+	})
+	
+	// Temporarily remove all other middleware
 	// router.Use(middleware.CORSMiddleware()) // Disabled - nginx handles CORS
-	router.Use(middleware.RateLimitMiddleware())
+	// router.Use(middleware.RateLimitMiddleware())
 
 	// Initialize handlers
 	userHandler := handlers.NewUserHandler()
@@ -193,6 +203,16 @@ func setupRouter() *gin.Engine {
 
 	// Serve static files (for file downloads)
 	router.Static("/downloads", "./downloads")
+
+	// Debug: catch-all route to see what paths are being requested
+	router.NoRoute(func(c *gin.Context) {
+		utils.LogInfo(fmt.Sprintf("No route found for: %s %s", c.Request.Method, c.Request.URL.Path))
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "Route not found",
+			"method": c.Request.Method,
+			"path": c.Request.URL.Path,
+		})
+	})
 
 	return router
 }
