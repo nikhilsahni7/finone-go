@@ -77,6 +77,33 @@ export default function UserDashboard() {
   >([]);
   const [lastSearchTime, setLastSearchTime] = useState(0);
   const [showPasswordChangeModal, setShowPasswordChangeModal] = useState(false);
+  const [isEnhancedMobileSearch, setIsEnhancedMobileSearch] = useState(false);
+
+  // Helper function to detect if search will use enhanced mobile search
+  const isLikelyMobileNumber = (value: string) => {
+    if (!value) return false;
+    const cleaned = value.replace(/\D/g, "");
+    return cleaned.length >= 10 && cleaned.length <= 12;
+  };
+
+  // Helper function to detect if current search criteria will trigger enhanced mobile search
+  const willUseEnhancedMobileSearch = () => {
+    // Check if mobile number field has a mobile-like value
+    if (
+      searchCriteria.mobileNumber &&
+      isLikelyMobileNumber(searchCriteria.mobileNumber)
+    ) {
+      return true;
+    }
+    // Check if alternate number field has a mobile-like value
+    if (
+      searchCriteria.alternateNumber &&
+      isLikelyMobileNumber(searchCriteria.alternateNumber)
+    ) {
+      return true;
+    }
+    return false;
+  };
 
   // Helper function to highlight searched terms
   const highlightSearchTerms = (text: string, searchTerms: string[]) => {
@@ -268,6 +295,10 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
         const optimalPageSize = getOptimalPageSize(1000);
         setPageSize(optimalPageSize);
 
+        // Detect if enhanced mobile search will be used
+        const willUseEnhanced = willUseEnhancedMobileSearch();
+        setIsEnhancedMobileSearch(willUseEnhanced);
+
         // Create search request with field-specific queries
         const searchRequest: SearchRequest = {
           query: Object.values(fieldQueries).join(" "), // Fallback for compatibility
@@ -434,6 +465,7 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
     setSearchWithinQuery("");
     setOriginalSearchResults([]);
     setError("");
+    setIsEnhancedMobileSearch(false); // Reset enhanced mobile search flag
 
     // Clear all search criteria
     setSearchCriteria({

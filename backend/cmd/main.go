@@ -141,6 +141,7 @@ func setupRouter() *gin.Engine {
 			{
 				search.POST("/", searchHandler.Search)
 				search.POST("/within", searchHandler.SearchWithin)
+				search.POST("/mobile/enhanced", searchHandler.EnhancedMobileSearch)
 				search.GET("/person/:id", searchHandler.GetPerson)
 				search.GET("/stats", searchHandler.GetStats)
 				search.POST("/export", searchHandler.ExportSearchResults)

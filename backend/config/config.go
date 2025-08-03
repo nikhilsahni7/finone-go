@@ -51,10 +51,10 @@ type JWTConfig struct {
 }
 
 type LimitsConfig struct {
-	MaxSearchesPerDay  int    `yaml:"max_searches_per_day"`
-	MaxExportsPerDay   int    `yaml:"max_exports_per_day"`
-	MaxRowsPerSearch   int    `yaml:"max_rows_per_search"`
-	MaxUploadSize      string `yaml:"max_upload_size"`
+	MaxSearchesPerDay int    `yaml:"max_searches_per_day"`
+	MaxExportsPerDay  int    `yaml:"max_exports_per_day"`
+	MaxRowsPerSearch  int    `yaml:"max_rows_per_search"`
+	MaxUploadSize     string `yaml:"max_upload_size"`
 }
 
 type CSVConfig struct {
@@ -164,10 +164,10 @@ func (c *Config) GetClickHouseConnectionString() string {
 		c.Database.ClickHouse.Database,
 		c.Database.ClickHouse.User,
 	)
-	
+
 	if c.Database.ClickHouse.Password != "" {
 		connectionStr += "&password=" + c.Database.ClickHouse.Password
 	}
-	
+
 	return connectionStr
 }

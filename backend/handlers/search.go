@@ -270,3 +270,52 @@ func (h *SearchHandler) SearchWithin(c *gin.Context) {
 	utils.LogInfo("Search within completed successfully")
 	c.JSON(http.StatusOK, response)
 }
+
+// EnhancedMobileSearch handles enhanced mobile number searches
+func (h *SearchHandler) EnhancedMobileSearch(c *gin.Context) {
+	userIDStr, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "User ID not found in context"})
+		return
+	}
+
+	userID, err := uuid.Parse(userIDStr.(string))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	var req models.EnhancedMobileSearchRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
+		return
+	}
+
+	// Validate mobile number
+	if req.MobileNumber == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Mobile number is required"})
+		return
+	}
+
+	// Set defaults
+	if req.Limit == 0 {
+		req.Limit = 1000
+	}
+	if req.Limit > 10000 {
+		req.Limit = 10000
+	}
+
+	utils.LogInfo(fmt.Sprintf("Enhanced mobile search request - Mobile: %s, Limit: %d, Offset: %d",
+		req.MobileNumber, req.Limit, req.Offset))
+
+	response, err := h.searchService.EnhancedMobileSearch(userID, &req)
+	if err != nil {
+		utils.LogError("Enhanced mobile search failed", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Enhanced mobile search failed"})
+		return
+	}
+
+	utils.LogInfo(fmt.Sprintf("Enhanced mobile search completed successfully - Direct: %d, Master ID: %d",
+		len(response.DirectMatches), len(response.MasterIDMatches)))
+	c.JSON(http.StatusOK, response)
+}

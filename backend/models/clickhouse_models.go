@@ -21,14 +21,35 @@ type Person struct {
 
 // SearchRequest represents a search request payload
 type SearchRequest struct {
-	Query        string            `json:"query" validate:"required"`
-	Fields       []string          `json:"fields" validate:"required"`               // mobile, name, fname, address, email, circle
-	FieldQueries map[string]string `json:"field_queries,omitempty"`                  // Field-specific queries
-	Logic        string            `json:"logic" validate:"oneof=AND OR"`            // AND or OR logic
-	SearchWithin bool              `json:"search_within"`                            // Search within previous results
-	MatchType    string            `json:"match_type" validate:"oneof=partial full"` // partial or full match
-	Limit        int               `json:"limit" validate:"min=1,max=10000"`         // Max results
-	Offset       int               `json:"offset" validate:"min=0"`                  // Pagination
+	Query          string            `json:"query" validate:"required"`
+	Fields         []string          `json:"fields" validate:"required"`               // mobile, name, fname, address, email, circle
+	FieldQueries   map[string]string `json:"field_queries,omitempty"`                  // Field-specific queries
+	Logic          string            `json:"logic" validate:"oneof=AND OR"`            // AND or OR logic
+	SearchWithin   bool              `json:"search_within"`                            // Search within previous results
+	MatchType      string            `json:"match_type" validate:"oneof=partial full"` // partial or full match
+	Limit          int               `json:"limit" validate:"min=1,max=10000"`         // Max results
+	Offset         int               `json:"offset" validate:"min=0"`                  // Pagination
+	EnhancedMobile bool              `json:"enhanced_mobile"`                          // Enhanced mobile search with master_id lookup
+}
+
+// EnhancedMobileSearchRequest represents an enhanced mobile search request
+type EnhancedMobileSearchRequest struct {
+	MobileNumber string `json:"mobile_number" validate:"required"`
+	Limit        int    `json:"limit" validate:"min=1,max=10000"`
+	Offset       int    `json:"offset" validate:"min=0"`
+}
+
+// EnhancedMobileSearchResponse represents an enhanced mobile search response
+type EnhancedMobileSearchResponse struct {
+	DirectMatches        []Person `json:"direct_matches"`    // Direct mobile number matches
+	MasterIDMatches      []Person `json:"master_id_matches"` // Additional records with same master_ids
+	TotalDirectMatches   int      `json:"total_direct_matches"`
+	TotalMasterIDMatches int      `json:"total_master_id_matches"`
+	TotalCount           int      `json:"total_count"`
+	ExecutionTime        int      `json:"execution_time_ms"`
+	SearchID             string   `json:"search_id"`
+	HasMore              bool     `json:"has_more"`
+	MasterIDs            []string `json:"master_ids"` // List of unique master_ids found
 }
 
 // SearchResponse represents a search response

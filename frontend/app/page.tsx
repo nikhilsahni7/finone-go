@@ -95,8 +95,10 @@ export default function Home() {
               {/* Stats */}
               <div className="grid grid-cols-3 gap-8 pt-8">
                 <div className="text-center">
-                  <div className="text-2xl font-bold text-gray-900">50K+</div>
-                  <div className="text-sm text-gray-600">CUSTOMERS</div>
+                  <div className="text-2xl font-bold text-gray-900">
+                    65 – 80 Million
+                  </div>
+                  <div className="text-sm text-gray-600">CUSTOMERS DATA</div>
                 </div>
                 <div className="text-center">
                   <div className="text-2xl font-bold text-gray-900">100%</div>

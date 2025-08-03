@@ -7,6 +7,7 @@ import (
 	"finone-search-system/models"
 	"finone-search-system/utils"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -30,6 +31,39 @@ func (s *SearchService) Search(userID uuid.UUID, req *models.SearchRequest) (*mo
 	}
 	if !canSearch {
 		return nil, fmt.Errorf("daily search limit exceeded")
+	}
+
+	// Auto-detect mobile number searches and use enhanced mobile search
+	// Check if this is likely a mobile number search
+	if s.shouldUseEnhancedMobileSearch(req) {
+		utils.LogInfo("Detected mobile number pattern, using enhanced mobile search")
+
+		// Extract the mobile number from the search
+		mobileNumber := s.extractMobileNumber(req)
+		if mobileNumber != "" {
+			enhancedReq := &models.EnhancedMobileSearchRequest{
+				MobileNumber: mobileNumber,
+				Limit:        req.Limit,
+				Offset:       req.Offset,
+			}
+
+			enhancedResponse, err := s.EnhancedMobileSearch(userID, enhancedReq)
+			if err != nil {
+				utils.LogError("Enhanced mobile search failed, falling back to regular search", err)
+				// Fall back to regular search on error
+			} else {
+				// Convert enhanced response to regular response format
+				allResults := append(enhancedResponse.DirectMatches, enhancedResponse.MasterIDMatches...)
+
+				return &models.SearchResponse{
+					Results:       allResults,
+					TotalCount:    enhancedResponse.TotalCount,
+					ExecutionTime: enhancedResponse.ExecutionTime,
+					SearchID:      enhancedResponse.SearchID,
+					HasMore:       enhancedResponse.HasMore,
+				}, nil
+			}
+		}
 	}
 
 	startTime := time.Now()
@@ -636,4 +670,256 @@ func (s *SearchService) buildSearchWithinQuery(originalReq *models.SearchRequest
 	}
 
 	return query
+}
+
+// isMobileNumber checks if a string looks like a mobile number (10-12 digits)
+func (s *SearchService) isMobileNumber(query string) bool {
+	// Remove any non-digit characters for validation
+	cleaned := regexp.MustCompile(`\D`).ReplaceAllString(query, "")
+	// Check if it's 10-12 digits (typical mobile number length)
+	return len(cleaned) >= 10 && len(cleaned) <= 12
+}
+
+// shouldUseEnhancedMobileSearch determines if the search should use enhanced mobile search
+func (s *SearchService) shouldUseEnhancedMobileSearch(req *models.SearchRequest) bool {
+	// If explicitly requested
+	if req.EnhancedMobile {
+		return true
+	}
+
+	// Check if the main query looks like a mobile number
+	if s.isMobileNumber(req.Query) {
+		return true
+	}
+
+	// Check field-specific queries for mobile fields
+	if len(req.FieldQueries) > 0 {
+		for field, value := range req.FieldQueries {
+			if (field == "mobile" || field == "alt") && s.isMobileNumber(value) {
+				return true
+			}
+		}
+	}
+
+	// Check if fields include mobile/alt and query looks like a number
+	if len(req.Fields) > 0 {
+		hasMobileField := false
+		for _, field := range req.Fields {
+			if field == "mobile" || field == "alt" {
+				hasMobileField = true
+				break
+			}
+		}
+		if hasMobileField && s.isMobileNumber(req.Query) {
+			return true
+		}
+	}
+
+	return false
+}
+
+// extractMobileNumber extracts the mobile number from the search request
+func (s *SearchService) extractMobileNumber(req *models.SearchRequest) string {
+	// Check field-specific queries first
+	if len(req.FieldQueries) > 0 {
+		for field, value := range req.FieldQueries {
+			if (field == "mobile" || field == "alt") && s.isMobileNumber(value) {
+				return value
+			}
+		}
+	}
+
+	// Check main query
+	if s.isMobileNumber(req.Query) {
+		return req.Query
+	}
+
+	return ""
+}
+
+// EnhancedMobileSearch performs an enhanced mobile number search
+// It searches for the mobile number and then finds all records with the same master_ids
+func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.EnhancedMobileSearchRequest) (*models.EnhancedMobileSearchResponse, error) {
+	// Check if user has remaining search quota
+	authService := NewAuthService()
+	canSearch, err := authService.CheckSearchLimit(userID)
+	if err != nil {
+		utils.LogError("Failed to check search limit", err)
+		return nil, fmt.Errorf("failed to check search limit")
+	}
+	if !canSearch {
+		return nil, fmt.Errorf("daily search limit exceeded")
+	}
+
+	startTime := time.Now()
+	searchID := uuid.New().String()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // Longer timeout for complex query
+	defer cancel()
+
+	// Clean the mobile number (remove any non-digit characters)
+	cleanedMobile := regexp.MustCompile(`\D`).ReplaceAllString(req.MobileNumber, "")
+
+	utils.LogInfo(fmt.Sprintf("Enhanced mobile search for: %s (cleaned: %s)", req.MobileNumber, cleanedMobile))
+
+	// Step 1: Find all direct mobile number matches (both exact and partial)
+	directMatchQuery := `
+		SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at
+		FROM finone_search.people
+		WHERE mobile = ? OR mobile LIKE ? OR mobile LIKE ? OR alt = ? OR alt LIKE ? OR alt LIKE ?
+		ORDER BY mobile, name
+	`
+
+	// Prepare variations of the mobile number for matching
+	mobileVariations := []interface{}{
+		cleanedMobile,       // Exact match
+		"%" + cleanedMobile, // Ends with
+		cleanedMobile + "%", // Starts with
+		cleanedMobile,       // Alt exact match
+		"%" + cleanedMobile, // Alt ends with
+		cleanedMobile + "%", // Alt starts with
+	}
+
+	var directMatches []models.Person
+	err = database.ClickHouseDB.Select(ctx, &directMatches, directMatchQuery, mobileVariations...)
+	if err != nil {
+		utils.LogError("Direct mobile search failed", err)
+		return nil, fmt.Errorf("direct mobile search failed: %w", err)
+	}
+
+	utils.LogInfo(fmt.Sprintf("Found %d direct matches for mobile: %s", len(directMatches), cleanedMobile))
+
+	// Step 2: Extract unique master_ids from direct matches
+	masterIDMap := make(map[string]bool)
+	for _, person := range directMatches {
+		if person.MasterID != "" {
+			masterIDMap[person.MasterID] = true
+		}
+	}
+
+	var masterIDMatches []models.Person
+	var uniqueMasterIDs []string
+
+	if len(masterIDMap) > 0 {
+		// Convert map to slice for query
+		for masterID := range masterIDMap {
+			uniqueMasterIDs = append(uniqueMasterIDs, masterID)
+		}
+
+		utils.LogInfo(fmt.Sprintf("Found %d unique master_ids, searching for related records", len(uniqueMasterIDs)))
+
+		// Step 3: Find all records with these master_ids (excluding already found direct matches)
+		// Build dynamic IN clause for master_ids
+		placeholders := make([]string, len(uniqueMasterIDs))
+		masterIDArgs := make([]interface{}, len(uniqueMasterIDs))
+		for i, masterID := range uniqueMasterIDs {
+			placeholders[i] = "?"
+			masterIDArgs[i] = masterID
+		}
+
+		masterIDQuery := fmt.Sprintf(`
+			SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at
+			FROM finone_search.people
+			WHERE master_id IN (%s)
+			AND id NOT IN (
+				SELECT id FROM finone_search.people
+				WHERE mobile = ? OR mobile LIKE ? OR mobile LIKE ? OR alt = ? OR alt LIKE ? OR alt LIKE ?
+			)
+			ORDER BY master_id, mobile, name
+		`, strings.Join(placeholders, ","))
+
+		// Combine master_id args with mobile variations for exclusion
+		allArgs := append(masterIDArgs, mobileVariations...)
+
+		err = database.ClickHouseDB.Select(ctx, &masterIDMatches, masterIDQuery, allArgs...)
+		if err != nil {
+			utils.LogError("Master ID search failed", err)
+			return nil, fmt.Errorf("master ID search failed: %w", err)
+		}
+
+		utils.LogInfo(fmt.Sprintf("Found %d additional records with matching master_ids", len(masterIDMatches)))
+	}
+
+	// Step 4: Get total counts for pagination
+	totalDirectCount := len(directMatches)
+	totalMasterIDCount := len(masterIDMatches)
+	totalCount := totalDirectCount + totalMasterIDCount
+
+	// Step 5: Apply pagination to combined results
+	var finalDirectMatches, finalMasterIDMatches []models.Person
+
+	if req.Limit > 0 {
+		// Apply pagination logic
+		if req.Offset < totalDirectCount {
+			// We're still in the direct matches range
+			endIndex := req.Offset + req.Limit
+			if endIndex > totalDirectCount {
+				endIndex = totalDirectCount
+			}
+			finalDirectMatches = directMatches[req.Offset:endIndex]
+
+			// If we have remaining limit, get from master ID matches
+			remainingLimit := req.Limit - len(finalDirectMatches)
+			if remainingLimit > 0 && len(masterIDMatches) > 0 {
+				masterEndIndex := remainingLimit
+				if masterEndIndex > len(masterIDMatches) {
+					masterEndIndex = len(masterIDMatches)
+				}
+				finalMasterIDMatches = masterIDMatches[0:masterEndIndex]
+			}
+		} else {
+			// We're in the master ID matches range
+			masterOffset := req.Offset - totalDirectCount
+			if masterOffset < len(masterIDMatches) {
+				endIndex := masterOffset + req.Limit
+				if endIndex > len(masterIDMatches) {
+					endIndex = len(masterIDMatches)
+				}
+				finalMasterIDMatches = masterIDMatches[masterOffset:endIndex]
+			}
+		}
+	} else {
+		// No pagination, return all results
+		finalDirectMatches = directMatches
+		finalMasterIDMatches = masterIDMatches
+	}
+
+	executionTime := int(time.Since(startTime).Milliseconds())
+	hasMore := (req.Offset + len(finalDirectMatches) + len(finalMasterIDMatches)) < totalCount
+
+	// Log the search
+	searchReq := &models.SearchRequest{
+		Query:          fmt.Sprintf("ENHANCED_MOBILE: %s", req.MobileNumber),
+		Fields:         []string{"mobile", "alt"},
+		Logic:          "OR",
+		MatchType:      "partial",
+		Limit:          req.Limit,
+		Offset:         req.Offset,
+		EnhancedMobile: true,
+	}
+	s.logSearch(userID, searchReq, totalCount, executionTime, searchID)
+
+	// Log performance metrics
+	queryText := fmt.Sprintf("Enhanced mobile search: %s (found %d master_ids)", cleanedMobile, len(uniqueMasterIDs))
+	s.logSearchPerformance(searchID, userID.String(), queryText, executionTime, totalCount)
+
+	// Increment user's daily search count
+	if err := authService.IncrementSearchCount(userID); err != nil {
+		utils.LogError("Failed to increment search count", err)
+	}
+
+	utils.LogInfo(fmt.Sprintf("Enhanced mobile search completed in %dms. Direct: %d, Master ID: %d, Total: %d",
+		executionTime, len(finalDirectMatches), len(finalMasterIDMatches), totalCount))
+
+	return &models.EnhancedMobileSearchResponse{
+		DirectMatches:        finalDirectMatches,
+		MasterIDMatches:      finalMasterIDMatches,
+		TotalDirectMatches:   totalDirectCount,
+		TotalMasterIDMatches: totalMasterIDCount,
+		TotalCount:           totalCount,
+		ExecutionTime:        executionTime,
+		SearchID:             searchID,
+		HasMore:              hasMore,
+		MasterIDs:            uniqueMasterIDs,
+	}, nil
 }

@@ -35,6 +35,24 @@ export interface SearchWithinRequest {
   offset?: number;
 }
 
+export interface EnhancedMobileSearchRequest {
+  mobile_number: string;
+  limit?: number;
+  offset?: number;
+}
+
+export interface EnhancedMobileSearchResponse {
+  direct_matches: any[];
+  master_id_matches: any[];
+  total_direct_matches: number;
+  total_master_id_matches: number;
+  total_count: number;
+  execution_time_ms: number;
+  search_id: string;
+  has_more: boolean;
+  master_ids: string[];
+}
+
 export interface UserProfile {
   id: string;
   name: string;
@@ -162,6 +180,15 @@ export async function searchWithin(
   request: SearchWithinRequest
 ): Promise<SearchResponse> {
   return apiCall("/api/v1/search/within", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
+export async function enhancedMobileSearch(
+  request: EnhancedMobileSearchRequest
+): Promise<EnhancedMobileSearchResponse> {
+  return apiCall("/api/v1/search/mobile/enhanced", {
     method: "POST",
     body: JSON.stringify(request),
   });
