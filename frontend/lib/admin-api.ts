@@ -79,6 +79,32 @@ export interface UserSearchHistoryResponse {
   searches: RecentSearch[];
 }
 
+export interface UserRegistrationRequest {
+  id: string;
+  name: string;
+  email: string;
+  phone_number: string;
+  requested_searches: number;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  admin_notes?: string;
+  created_at: string;
+  updated_at: string;
+  reviewed_at?: string;
+  reviewed_by?: string;
+}
+
+export interface RegistrationRequestListResponse {
+  requests: UserRegistrationRequest[];
+  total_count: number;
+  page: number;
+  limit: number;
+}
+
+export interface UpdateRegistrationRequest {
+  status: "APPROVED" | "REJECTED";
+  admin_notes?: string;
+}
+
 /**
  * Create a new user (admin only)
  */
@@ -332,6 +358,136 @@ export const deleteUser = async (
 
   if (!response.ok) {
     throw new ApiError(response.status, data.error || "Failed to delete user");
+  }
+
+  return data;
+};
+
+/**
+ * Get paginated list of registration requests (admin only)
+ */
+export const getRegistrationRequests = async (
+  page: number = 1,
+  limit: number = 20,
+  status?: string
+): Promise<RegistrationRequestListResponse> => {
+  const token = localStorage.getItem("admin_token");
+  if (!token) throw new ApiError(401, "No admin token found");
+
+  const params = new URLSearchParams({
+    page: page.toString(),
+    limit: limit.toString(),
+  });
+
+  if (status) {
+    params.append("status", status);
+  }
+
+  const response = await fetch(
+    `${BACKEND_URL}/api/v1/admin/registration-requests?${params.toString()}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      data.error || "Failed to get registration requests"
+    );
+  }
+
+  return data;
+};
+
+/**
+ * Get a specific registration request by ID (admin only)
+ */
+export const getRegistrationRequest = async (
+  id: string
+): Promise<UserRegistrationRequest> => {
+  const token = localStorage.getItem("admin_token");
+  if (!token) throw new ApiError(401, "No admin token found");
+
+  const response = await fetch(
+    `${BACKEND_URL}/api/v1/admin/registration-requests/${id}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      data.error || "Failed to get registration request"
+    );
+  }
+
+  return data;
+};
+
+/**
+ * Update registration request status (admin only)
+ */
+export const updateRegistrationRequest = async (
+  id: string,
+  update: UpdateRegistrationRequest
+): Promise<{ message: string; request: UserRegistrationRequest }> => {
+  const token = localStorage.getItem("admin_token");
+  if (!token) throw new ApiError(401, "No admin token found");
+
+  const response = await fetch(
+    `${BACKEND_URL}/api/v1/admin/registration-requests/${id}`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(update),
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      data.error || "Failed to update registration request"
+    );
+  }
+
+  return data;
+};
+
+/**
+ * Delete a registration request (admin only)
+ */
+export const deleteRegistrationRequest = async (
+  id: string
+): Promise<{ message: string }> => {
+  const token = localStorage.getItem("admin_token");
+  if (!token) throw new ApiError(401, "No admin token found");
+
+  const response = await fetch(
+    `${BACKEND_URL}/api/v1/admin/registration-requests/${id}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      data.error || "Failed to delete registration request"
+    );
   }
 
   return data;

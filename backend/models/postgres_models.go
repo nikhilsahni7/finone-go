@@ -156,3 +156,40 @@ type UserAnalyticsWithSearches struct {
 	UserAnalytics
 	RecentSearches []RecentSearch `json:"recent_searches"`
 }
+
+// UserRegistrationRequest represents a request from users wanting to join the system
+type UserRegistrationRequest struct {
+	ID                uuid.UUID  `json:"id" db:"id"`
+	Name              string     `json:"name" db:"name"`
+	Email             string     `json:"email" db:"email"`
+	PhoneNumber       string     `json:"phone_number" db:"phone_number"`
+	RequestedSearches int        `json:"requested_searches" db:"requested_searches"`
+	Status            string     `json:"status" db:"status"` // PENDING, APPROVED, REJECTED
+	AdminNotes        *string    `json:"admin_notes" db:"admin_notes"`
+	CreatedAt         time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt         time.Time  `json:"updated_at" db:"updated_at"`
+	ReviewedAt        *time.Time `json:"reviewed_at" db:"reviewed_at"`
+	ReviewedBy        *uuid.UUID `json:"reviewed_by" db:"reviewed_by"`
+}
+
+// CreateRegistrationRequest represents the request payload for user registration
+type CreateRegistrationRequest struct {
+	Name              string `json:"name" validate:"required,min=2,max=100"`
+	Email             string `json:"email" validate:"required,email"`
+	PhoneNumber       string `json:"phone_number" validate:"required,min=10,max=15"`
+	RequestedSearches int    `json:"requested_searches" validate:"required,min=1,max=10000"`
+}
+
+// UpdateRegistrationRequest represents admin's response to a registration request
+type UpdateRegistrationRequest struct {
+	Status     string  `json:"status" validate:"required,oneof=APPROVED REJECTED"`
+	AdminNotes *string `json:"admin_notes"`
+}
+
+// RegistrationRequestListResponse represents the registration request list response
+type RegistrationRequestListResponse struct {
+	Requests   []UserRegistrationRequest `json:"requests"`
+	TotalCount int                       `json:"total_count"`
+	Page       int                       `json:"page"`
+	Limit      int                       `json:"limit"`
+}

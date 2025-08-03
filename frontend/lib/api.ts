@@ -62,6 +62,27 @@ export interface UserAnalytics {
   last_search_time?: string;
 }
 
+export interface RegistrationRequest {
+  name: string;
+  email: string;
+  phone_number: string;
+  requested_searches: number;
+}
+
+export interface UserRegistrationRequest {
+  id: string;
+  name: string;
+  email: string;
+  phone_number: string;
+  requested_searches: number;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  admin_notes?: string;
+  created_at: string;
+  updated_at: string;
+  reviewed_at?: string;
+  reviewed_by?: string;
+}
+
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
     super(message);
@@ -199,4 +220,14 @@ export function clearAuth(): void {
   localStorage.removeItem("user");
   // Clear cookie
   document.cookie = "token=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC;";
+}
+
+// Registration API functions
+export async function createRegistrationRequest(
+  request: RegistrationRequest
+): Promise<{ message: string; request: UserRegistrationRequest }> {
+  return apiCall("/api/v1/register", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
 }

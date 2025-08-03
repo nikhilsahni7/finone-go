@@ -52,7 +52,6 @@ export default function UserDashboard() {
     emailAddress: "",
     masterId: "",
     address: "",
-    circle: "",
   });
 
   const [searchLogic, setSearchLogic] = useState<"AND" | "OR">("AND");
@@ -219,15 +218,7 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
         const searchWithinRequest: SearchWithinRequest = {
           search_id: searchId,
           query: searchWithinQuery.trim(),
-          fields: [
-            "name",
-            "fname",
-            "mobile",
-            "address",
-            "circle",
-            "email",
-            "master_id",
-          ],
+          fields: ["name", "fname", "mobile", "address", "email", "master_id"],
           match_type: "partial",
           limit: pageSize,
           offset: 0,
@@ -264,9 +255,6 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
         }
         if (searchCriteria.address.trim()) {
           fieldQueries.address = searchCriteria.address.trim();
-        }
-        if (searchCriteria.circle.trim()) {
-          fieldQueries.circle = searchCriteria.circle.trim();
         }
 
         if (Object.keys(fieldQueries).length === 0) {
@@ -335,15 +323,7 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
         const searchWithinRequest: SearchWithinRequest = {
           search_id: searchId,
           query: searchWithinQuery,
-          fields: [
-            "name",
-            "fname",
-            "mobile",
-            "address",
-            "circle",
-            "email",
-            "master_id",
-          ],
+          fields: ["name", "fname", "mobile", "address", "email", "master_id"],
           match_type: "partial",
           limit: pageSize,
           offset: offset,
@@ -380,9 +360,6 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
         }
         if (searchCriteria.address.trim()) {
           fieldQueries.address = searchCriteria.address.trim();
-        }
-        if (searchCriteria.circle.trim()) {
-          fieldQueries.circle = searchCriteria.circle.trim();
         }
 
         const searchRequest: SearchRequest = {
@@ -464,7 +441,6 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
       emailAddress: "",
       masterId: "",
       address: "",
-      circle: "",
     });
 
     // Reset search logic to AND
@@ -613,6 +589,24 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label
+                        htmlFor="masterId"
+                        className="text-sm font-medium text-gray-700"
+                      >
+                        Master ID
+                      </Label>
+                      <Input
+                        id="masterId"
+                        placeholder="Enter Master ID"
+                        value={searchCriteria.masterId}
+                        onChange={(e) =>
+                          handleInputChange("masterId", e.target.value)
+                        }
+                        className="focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
+                      <Label
                         htmlFor="customerName"
                         className="text-sm font-medium text-gray-700"
                       >
@@ -703,24 +697,6 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
 
                     <div className="space-y-2">
                       <Label
-                        htmlFor="masterId"
-                        className="text-sm font-medium text-gray-700"
-                      >
-                        Master ID
-                      </Label>
-                      <Input
-                        id="masterId"
-                        placeholder="Enter Master ID"
-                        value={searchCriteria.masterId}
-                        onChange={(e) =>
-                          handleInputChange("masterId", e.target.value)
-                        }
-                        className="focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label
                         htmlFor="address"
                         className="text-sm font-medium text-gray-700"
                       >
@@ -736,36 +712,6 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
                         className="focus:ring-2 focus:ring-blue-500"
                       />
                     </div>
-
-                    <div className="space-y-2">
-                      <Label
-                        htmlFor="circle"
-                        className="text-sm font-medium text-gray-700"
-                      >
-                        Circle
-                      </Label>
-                      <Input
-                        id="circle"
-                        placeholder="Enter circle (e.g., AIRTEL DELHI)"
-                        value={searchCriteria.circle}
-                        onChange={(e) =>
-                          handleInputChange("circle", e.target.value)
-                        }
-                        className="focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Search Tip */}
-                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
-                    <p className="text-sm text-blue-800">
-                      <strong>Search Tip:</strong>
-                      {searchLogic === "OR"
-                        ? " OR logic finds records where ANY field matches your search terms (broader results)."
-                        : " AND logic finds records where ALL filled fields must match your search terms (precise results)."}
-                      Fill any combination of fields above. Circle field helps
-                      filter by telecom circle (e.g., AIRTEL DELHI).
-                    </p>
                   </div>
 
                   <Button

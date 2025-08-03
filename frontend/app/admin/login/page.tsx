@@ -114,6 +114,24 @@ export default function AdminLogin() {
                   "Sign in"
                 )}
               </Button>
+
+              {/* Support Link */}
+              <div className="text-center pt-4">
+                <p className="text-sm text-gray-600">
+                  Need assistance?{" "}
+                  <button
+                    type="button"
+                    className="text-purple-600 hover:text-purple-800 font-medium underline"
+                    onClick={() => {
+                      alert(
+                        "For technical support, please contact us:\n\n📞 Call: 8448671674\n💬 WhatsApp: https://wa.me/918448671674\n\nWe're here to help!"
+                      );
+                    }}
+                  >
+                    Contact support
+                  </button>
+                </p>
+              </div>
             </form>
           </CardContent>
         </Card>

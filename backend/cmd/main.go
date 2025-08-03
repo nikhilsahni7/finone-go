@@ -84,6 +84,7 @@ func setupRouter() *gin.Engine {
 	// Initialize handlers
 	userHandler := handlers.NewUserHandler()
 	searchHandler := handlers.NewSearchHandler()
+	registrationHandler := handlers.NewRegistrationHandler()
 
 	// Health check endpoint
 	router.GET("/health", func(c *gin.Context) {
@@ -111,6 +112,9 @@ func setupRouter() *gin.Engine {
 		{
 			auth.POST("/login", userHandler.Login)
 		}
+
+		// Public registration endpoint
+		api.POST("/register", registrationHandler.CreateRegistrationRequest)
 
 		// Protected routes (authentication required)
 		protected := api.Group("/")
@@ -145,6 +149,12 @@ func setupRouter() *gin.Engine {
 				admin.PUT("/users/:id", userHandler.UpdateUser)
 				admin.DELETE("/users/:id", userHandler.DeleteUser)
 				admin.GET("/analytics", userHandler.GetUserAnalytics)
+
+				// Registration request management
+				admin.GET("/registration-requests", registrationHandler.GetRegistrationRequests)
+				admin.GET("/registration-requests/:id", registrationHandler.GetRegistrationRequest)
+				admin.PUT("/registration-requests/:id", registrationHandler.UpdateRegistrationRequest)
+				admin.DELETE("/registration-requests/:id", registrationHandler.DeleteRegistrationRequest)
 
 				// Session management
 				admin.GET("/sessions", userHandler.GetAllActiveSessions)

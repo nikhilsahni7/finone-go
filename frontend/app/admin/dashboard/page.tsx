@@ -2,6 +2,7 @@
 
 import AdminProtectedRoute from "../../../components/admin-protected-route";
 import AdminTabs from "../../../components/admin-tabs";
+import RegistrationRequests from "../../../components/registration-requests";
 import SessionManagement from "../../../components/session-management";
 import SystemAnalytics from "../../../components/system-analytics";
 import { Button } from "../../../components/ui/button";
@@ -21,6 +22,11 @@ export default function AdminDashboard() {
       id: "users",
       label: "User Management",
       component: <UserManagement />,
+    },
+    {
+      id: "registration-requests",
+      label: "Registration Requests",
+      component: <RegistrationRequests />,
     },
     {
       id: "analytics",

@@ -32,7 +32,8 @@ export function middleware(request: NextRequest) {
   }
 
   // Define public paths that don't require authentication
-  const isPublicPath = path === "/" || path === "/user/login";
+  const isPublicPath =
+    path === "/" || path === "/user/login" || path === "/register";
 
   // Handle home page "/" - check admin first, then user
   if (path === "/") {

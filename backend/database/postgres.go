@@ -50,6 +50,7 @@ func RunPostgresMigrations() error {
 		"migrations/001_postgres_schema.sql",
 		"migrations/003_user_sessions.sql",
 		"migrations/004_system_logs.sql",
+		"migrations/005_user_registration_requests.sql",
 	}
 
 	for _, file := range migrationFiles {

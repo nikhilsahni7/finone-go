@@ -175,12 +175,27 @@ export default function UserLogin() {
                 </Button>
 
                 {/* Support Link */}
-                <div className="text-center pt-4">
+                <div className="text-center pt-4 space-y-2">
+                  <p className="text-sm text-gray-600">
+                    Don't have an account?{" "}
+                    <Link
+                      href="/register"
+                      className="text-purple-600 hover:text-purple-800 font-medium"
+                    >
+                      Request access
+                    </Link>
+                  </p>
                   <p className="text-sm text-gray-600">
                     Having trouble signing in?{" "}
                     <Link
                       href="#"
                       className="text-purple-600 hover:text-purple-800 font-medium"
+                      onClick={(e) => {
+                        e.preventDefault();
+                        alert(
+                          "For assistance, please contact us:\n\n📞 Call: 8448671674\n💬 WhatsApp: https://wa.me/918448671674\n\nWe're here to help!"
+                        );
+                      }}
                     >
                       Contact support
                     </Link>
