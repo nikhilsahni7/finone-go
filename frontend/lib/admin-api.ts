@@ -105,6 +105,32 @@ export interface UpdateRegistrationRequest {
   admin_notes?: string;
 }
 
+export interface UserPasswordChangeRequest {
+  id: string;
+  user_id: string;
+  user_name: string;
+  user_email: string;
+  reason: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  admin_notes?: string;
+  created_at: string;
+  updated_at: string;
+  reviewed_at?: string;
+  reviewed_by?: string;
+}
+
+export interface PasswordChangeRequestListResponse {
+  requests: UserPasswordChangeRequest[];
+  total_count: number;
+  page: number;
+  limit: number;
+}
+
+export interface UpdatePasswordChangeRequest {
+  status: "APPROVED" | "REJECTED";
+  admin_notes?: string;
+}
+
 /**
  * Create a new user (admin only)
  */
@@ -487,6 +513,136 @@ export const deleteRegistrationRequest = async (
     throw new ApiError(
       response.status,
       data.error || "Failed to delete registration request"
+    );
+  }
+
+  return data;
+};
+
+/**
+ * Get paginated list of password change requests (admin only)
+ */
+export const getPasswordChangeRequests = async (
+  page: number = 1,
+  limit: number = 20,
+  status?: string
+): Promise<PasswordChangeRequestListResponse> => {
+  const token = localStorage.getItem("admin_token");
+  if (!token) throw new ApiError(401, "No admin token found");
+
+  const params = new URLSearchParams({
+    page: page.toString(),
+    limit: limit.toString(),
+  });
+
+  if (status) {
+    params.append("status", status);
+  }
+
+  const response = await fetch(
+    `${BACKEND_URL}/api/v1/admin/password-change-requests?${params.toString()}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      data.error || "Failed to get password change requests"
+    );
+  }
+
+  return data;
+};
+
+/**
+ * Get a specific password change request by ID (admin only)
+ */
+export const getPasswordChangeRequest = async (
+  id: string
+): Promise<UserPasswordChangeRequest> => {
+  const token = localStorage.getItem("admin_token");
+  if (!token) throw new ApiError(401, "No admin token found");
+
+  const response = await fetch(
+    `${BACKEND_URL}/api/v1/admin/password-change-requests/${id}`,
+    {
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      data.error || "Failed to get password change request"
+    );
+  }
+
+  return data;
+};
+
+/**
+ * Update password change request status (admin only)
+ */
+export const updatePasswordChangeRequest = async (
+  id: string,
+  update: UpdatePasswordChangeRequest
+): Promise<{ message: string; request: UserPasswordChangeRequest }> => {
+  const token = localStorage.getItem("admin_token");
+  if (!token) throw new ApiError(401, "No admin token found");
+
+  const response = await fetch(
+    `${BACKEND_URL}/api/v1/admin/password-change-requests/${id}`,
+    {
+      method: "PUT",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify(update),
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      data.error || "Failed to update password change request"
+    );
+  }
+
+  return data;
+};
+
+/**
+ * Delete a password change request (admin only)
+ */
+export const deletePasswordChangeRequest = async (
+  id: string
+): Promise<{ message: string }> => {
+  const token = localStorage.getItem("admin_token");
+  if (!token) throw new ApiError(401, "No admin token found");
+
+  const response = await fetch(
+    `${BACKEND_URL}/api/v1/admin/password-change-requests/${id}`,
+    {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      data.error || "Failed to delete password change request"
     );
   }
 

@@ -2,6 +2,7 @@
 
 import AdminProtectedRoute from "../../../components/admin-protected-route";
 import AdminTabs from "../../../components/admin-tabs";
+import PasswordChangeRequests from "../../../components/password-change-requests";
 import RegistrationRequests from "../../../components/registration-requests";
 import SessionManagement from "../../../components/session-management";
 import SystemAnalytics from "../../../components/system-analytics";
@@ -27,6 +28,11 @@ export default function AdminDashboard() {
       id: "registration-requests",
       label: "Registration Requests",
       component: <RegistrationRequests />,
+    },
+    {
+      id: "password-requests",
+      label: "Password Change Requests",
+      component: <PasswordChangeRequests />,
     },
     {
       id: "analytics",

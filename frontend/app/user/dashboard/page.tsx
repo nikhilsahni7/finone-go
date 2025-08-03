@@ -1,5 +1,6 @@
 "use client";
 
+import PasswordChangeModal from "@/components/password-change-modal";
 import ProtectedRoute from "@/components/protected-route";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +23,7 @@ import {
   Clock,
   Copy,
   Download,
+  Key,
   Loader2,
   LogOut,
   RefreshCw,
@@ -74,6 +76,7 @@ export default function UserDashboard() {
     SearchResult[]
   >([]);
   const [lastSearchTime, setLastSearchTime] = useState(0);
+  const [showPasswordChangeModal, setShowPasswordChangeModal] = useState(false);
 
   // Helper function to highlight searched terms
   const highlightSearchTerms = (text: string, searchTerms: string[]) => {
@@ -524,6 +527,15 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
                   {currentUser.max_searches_per_day}
                 </p>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowPasswordChangeModal(true)}
+                className="text-blue-700 border-blue-300 hover:bg-blue-50"
+              >
+                <Key className="w-4 h-4 mr-2" />
+                Change Password
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -1090,6 +1102,15 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
           </div>
         </div>
       </div>
+
+      {/* Password Change Modal */}
+      <PasswordChangeModal
+        isOpen={showPasswordChangeModal}
+        onClose={() => setShowPasswordChangeModal(false)}
+        onSuccess={() => {
+          // Optional: Show success message or refresh data
+        }}
+      />
     </ProtectedRoute>
   );
 }

@@ -231,3 +231,48 @@ export async function createRegistrationRequest(
     body: JSON.stringify(request),
   });
 }
+
+// Password change request interfaces
+export interface PasswordChangeRequest {
+  reason: string;
+}
+
+export interface UserPasswordChangeRequest {
+  id: string;
+  user_id: string;
+  user_name: string;
+  user_email: string;
+  reason: string;
+  status: "PENDING" | "APPROVED" | "REJECTED";
+  admin_notes?: string;
+  created_at: string;
+  updated_at: string;
+  reviewed_at?: string;
+  reviewed_by?: string;
+}
+
+export interface PasswordChangeRequestListResponse {
+  requests: UserPasswordChangeRequest[];
+  total_count: number;
+  page: number;
+  limit: number;
+}
+
+// Password change request API functions
+export async function createPasswordChangeRequest(
+  request: PasswordChangeRequest
+): Promise<{ message: string; request: UserPasswordChangeRequest }> {
+  return apiCall("/api/v1/password-change-requests/", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
+export async function getUserPasswordChangeRequests(): Promise<
+  UserPasswordChangeRequest[]
+> {
+  const response: PasswordChangeRequestListResponse = await apiCall(
+    "/api/v1/password-change-requests/my"
+  );
+  return response.requests || [];
+}

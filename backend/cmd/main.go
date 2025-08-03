@@ -85,6 +85,7 @@ func setupRouter() *gin.Engine {
 	userHandler := handlers.NewUserHandler()
 	searchHandler := handlers.NewSearchHandler()
 	registrationHandler := handlers.NewRegistrationHandler()
+	passwordChangeHandler := handlers.NewPasswordChangeHandler()
 
 	// Health check endpoint
 	router.GET("/health", func(c *gin.Context) {
@@ -128,6 +129,13 @@ func setupRouter() *gin.Engine {
 				users.POST("/logout", userHandler.Logout)
 			}
 
+			// Password change request routes (user)
+			passwordChange := protected.Group("/password-change-requests")
+			{
+				passwordChange.POST("/", passwordChangeHandler.CreatePasswordChangeRequest)
+				passwordChange.GET("/my", passwordChangeHandler.GetUserPasswordChangeRequests)
+			}
+
 			// Search routes
 			search := protected.Group("/search")
 			{
@@ -155,6 +163,12 @@ func setupRouter() *gin.Engine {
 				admin.GET("/registration-requests/:id", registrationHandler.GetRegistrationRequest)
 				admin.PUT("/registration-requests/:id", registrationHandler.UpdateRegistrationRequest)
 				admin.DELETE("/registration-requests/:id", registrationHandler.DeleteRegistrationRequest)
+
+				// Password change request management
+				admin.GET("/password-change-requests", passwordChangeHandler.GetPasswordChangeRequests)
+				admin.GET("/password-change-requests/:id", passwordChangeHandler.GetPasswordChangeRequest)
+				admin.PUT("/password-change-requests/:id", passwordChangeHandler.UpdatePasswordChangeRequest)
+				admin.DELETE("/password-change-requests/:id", passwordChangeHandler.DeletePasswordChangeRequest)
 
 				// Session management
 				admin.GET("/sessions", userHandler.GetAllActiveSessions)

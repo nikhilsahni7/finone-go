@@ -193,3 +193,36 @@ type RegistrationRequestListResponse struct {
 	Page       int                       `json:"page"`
 	Limit      int                       `json:"limit"`
 }
+
+// UserPasswordChangeRequest represents a request from users to change their password
+type UserPasswordChangeRequest struct {
+	ID         uuid.UUID  `json:"id" db:"id"`
+	UserID     uuid.UUID  `json:"user_id" db:"user_id"`
+	UserName   string     `json:"user_name" db:"user_name"`
+	UserEmail  string     `json:"user_email" db:"user_email"`
+	Reason     string     `json:"reason" db:"reason"`
+	Status     string     `json:"status" db:"status"` // PENDING, COMPLETED, REJECTED
+	CreatedAt  time.Time  `json:"created_at" db:"created_at"`
+	UpdatedAt  time.Time  `json:"updated_at" db:"updated_at"`
+	AdminID    *uuid.UUID `json:"admin_id" db:"admin_id"`
+	AdminNotes *string    `json:"admin_notes" db:"admin_notes"`
+}
+
+// CreatePasswordChangeRequest represents the request payload for password change
+type CreatePasswordChangeRequest struct {
+	Reason string `json:"reason" validate:"required,min=10,max=500"`
+}
+
+// UpdatePasswordChangeRequest represents admin's response to a password change request
+type UpdatePasswordChangeRequest struct {
+	Status     string  `json:"status" validate:"required,oneof=COMPLETED REJECTED"`
+	AdminNotes *string `json:"admin_notes"`
+}
+
+// PasswordChangeRequestListResponse represents the password change request list response
+type PasswordChangeRequestListResponse struct {
+	Requests   []UserPasswordChangeRequest `json:"requests"`
+	TotalCount int                         `json:"total_count"`
+	Page       int                         `json:"page"`
+	Limit      int                         `json:"limit"`
+}
