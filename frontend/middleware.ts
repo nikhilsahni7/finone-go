@@ -5,6 +5,11 @@ export function middleware(request: NextRequest) {
   // Get the pathname of the request (e.g. /, /protected)
   const path = request.nextUrl.pathname;
 
+  // Skip middleware for static assets
+  if (path.match(/\.(png|jpg|jpeg|gif|svg|css|js|ico|woff|woff2|ttf|eot)$/)) {
+    return NextResponse.next();
+  }
+
   // Get both tokens
   const adminToken = request.cookies.get("admin_token")?.value;
   const userToken = request.cookies.get("token")?.value;
