@@ -14,13 +14,24 @@ func CORSMiddleware() gin.HandlerFunc {
 	// Get frontend URL from environment variable
 	frontendURL := os.Getenv("FRONTEND_URL")
 	if frontendURL == "" {
-		frontendURL = "http://localhost:3000" // Default for development
+		// Default for development
+		frontendURL = "http://localhost:3000"
 	}
 
 	// Support multiple frontend URLs (comma-separated)
 	allowedOrigins := strings.Split(frontendURL, ",")
 	for i, origin := range allowedOrigins {
 		allowedOrigins[i] = strings.TrimSpace(origin)
+	}
+
+	// Add common production domains if not explicitly set
+	if frontendURL == "http://localhost:3000" {
+		// If only default is set, add production domains
+		allowedOrigins = append(allowedOrigins,
+			
+		"https://finoneweb.nikhilsahni.xyz",
+			"https://finone.nikhilsahni.xyz",
+		)
 	}
 
 	config.AllowOrigins = allowedOrigins
