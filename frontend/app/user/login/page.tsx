@@ -5,7 +5,14 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth-context";
-import { AlertCircle, ArrowLeft, Eye, EyeOff, User } from "lucide-react";
+import {
+  AlertCircle,
+  ArrowLeft,
+  Eye,
+  EyeOff,
+  RefreshCw,
+  User,
+} from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -20,7 +27,28 @@ export default function UserLogin() {
     email: "",
     password: "",
   });
+
+  // CAPTCHA state
+  const [captcha, setCaptcha] = useState({ num1: 0, num2: 0, answer: 0 });
+  const [captchaInput, setCaptchaInput] = useState("");
+  const [captchaError, setCaptchaError] = useState("");
+
   const router = useRouter();
+
+  // Generate new CAPTCHA
+  const generateCaptcha = () => {
+    const num1 = Math.floor(Math.random() * 10) + 1; // 1-10
+    const num2 = Math.floor(Math.random() * 10) + 1; // 1-10
+    const answer = num1 + num2;
+    setCaptcha({ num1, num2, answer });
+    setCaptchaInput("");
+    setCaptchaError("");
+  };
+
+  // Initialize CAPTCHA on component mount
+  useEffect(() => {
+    generateCaptcha();
+  }, []);
 
   // Redirect if already authenticated
   useEffect(() => {
@@ -38,10 +66,31 @@ export default function UserLogin() {
     if (error) setError("");
   };
 
+  const handleCaptchaInputChange = (value: string) => {
+    setCaptchaInput(value);
+    if (captchaError) setCaptchaError("");
+  };
+
+  const validateCaptcha = () => {
+    const userAnswer = parseInt(captchaInput);
+    if (isNaN(userAnswer) || userAnswer !== captcha.answer) {
+      setCaptchaError("Incorrect answer. Please try again.");
+      generateCaptcha(); // Generate new CAPTCHA on error
+      return false;
+    }
+    return true;
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
     setError("");
+
+    // Validate CAPTCHA first
+    if (!validateCaptcha()) {
+      setIsLoading(false);
+      return;
+    }
 
     const result = await authLogin(formData.email, formData.password);
 
@@ -50,6 +99,8 @@ export default function UserLogin() {
       router.push("/user/dashboard");
     } else {
       setError(result.error || "Login failed");
+      // Generate new CAPTCHA on login failure for security
+      generateCaptcha();
     }
 
     setIsLoading(false);
@@ -152,6 +203,68 @@ export default function UserLogin() {
                     >
                       {showPassword ? <EyeOff size={20} /> : <Eye size={20} />}
                     </button>
+                  </div>
+                </div>
+
+                {/* CAPTCHA Field */}
+                <div className="space-y-2">
+                  <Label
+                    htmlFor="captcha"
+                    className="text-sm font-medium text-gray-700"
+                  >
+                    Security Verification
+                  </Label>
+                  <div className="space-y-3">
+                    {/* CAPTCHA Question */}
+                    <div className="flex items-center justify-between p-4 bg-gray-50 border border-gray-200 rounded-lg">
+                      <div className="flex items-center space-x-3">
+                        <span className="text-lg font-mono font-semibold text-gray-800">
+                          {captcha.num1} + {captcha.num2} = ?
+                        </span>
+                      </div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={generateCaptcha}
+                        className="flex items-center space-x-1 text-gray-600 hover:text-gray-800"
+                        title="Generate new question"
+                      >
+                        <RefreshCw size={16} />
+                        <span className="text-xs">New</span>
+                      </Button>
+                    </div>
+
+                    {/* CAPTCHA Input */}
+                    <div className="relative">
+                      <Input
+                        id="captcha"
+                        type="number"
+                        placeholder="Enter the answer"
+                        value={captchaInput}
+                        onChange={(e) =>
+                          handleCaptchaInputChange(e.target.value)
+                        }
+                        className="w-full h-12 px-4 border-gray-300 focus:ring-2 focus:ring-purple-500 focus:border-purple-500"
+                        required
+                        min="0"
+                        max="20"
+                        autoComplete="off"
+                      />
+                    </div>
+
+                    {/* CAPTCHA Error */}
+                    {captchaError && (
+                      <div className="flex items-center space-x-2 text-red-600">
+                        <AlertCircle className="w-4 h-4 flex-shrink-0" />
+                        <p className="text-sm">{captchaError}</p>
+                      </div>
+                    )}
+
+                    <p className="text-xs text-gray-500">
+                      Please solve the simple math problem above to verify
+                      you're human
+                    </p>
                   </div>
                 </div>
 
