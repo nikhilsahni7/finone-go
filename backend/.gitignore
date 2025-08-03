@@ -212,6 +212,9 @@ access.log
 *.dump
 *.sql
 
+# Allow migration files to be tracked
+!migrations/*.sql
+
 # Cache directories
 .cache/
 cache/
