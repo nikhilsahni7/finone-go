@@ -78,7 +78,7 @@ func setupRouter() *gin.Engine {
 	// Global middleware
 	router.Use(utils.GinLogger())
 	router.Use(utils.GinRecovery())
-	router.Use(middleware.CORSMiddleware())
+	// router.Use(middleware.CORSMiddleware()) // Disabled - nginx handles CORS
 	router.Use(middleware.RateLimitMiddleware())
 
 	// Initialize handlers
