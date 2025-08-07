@@ -285,6 +285,43 @@ export const resetDailySearchCounts = async (): Promise<{
 };
 
 /**
+ * Reset daily search count for a specific user (admin only)
+ */
+export const resetUserDailySearchCount = async (
+  userId: string
+): Promise<{
+  message: string;
+  user: {
+    id: string;
+    name: string;
+    email: string;
+  };
+  note: string;
+}> => {
+  const token = localStorage.getItem("admin_token");
+  if (!token) throw new ApiError(401, "No admin token found");
+
+  const response = await fetch(
+    `${BACKEND_URL}/api/v1/admin/users/${userId}/reset-daily-search-count`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+    }
+  );
+
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new ApiError(
+      response.status,
+      data.error || "Failed to reset user daily search count"
+    );
+  }
+
+  return data;
+};
+
+/**
  * Get next reset time (admin only)
  */
 export const getNextResetTime = async (): Promise<{

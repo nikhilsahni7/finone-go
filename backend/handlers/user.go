@@ -27,7 +27,7 @@ func NewUserHandler() *UserHandler {
 // Login handles user authentication
 func (h *UserHandler) Login(c *gin.Context) {
 	utils.LogInfo(fmt.Sprintf("Login request received from %s", c.ClientIP()))
-	
+
 	var req models.LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		utils.LogError("Invalid login request format", err)
@@ -331,6 +331,43 @@ func (h *UserHandler) ResetDailySearchCounts(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"message": "Daily search counts reset successfully",
 		"note":    "All users' daily search counts have been reset to 0",
+	})
+}
+
+// ResetUserDailySearchCount handles manual reset of daily search count for a specific user (admin only)
+func (h *UserHandler) ResetUserDailySearchCount(c *gin.Context) {
+	userIDStr := c.Param("id")
+	userID, err := uuid.Parse(userIDStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	// Check if user exists
+	user, err := h.authService.GetUserByID(userID)
+	if err != nil {
+		utils.LogError("Failed to get user", err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+		return
+	}
+
+	// Reset the user's daily search count
+	err = h.authService.ResetUserDailySearchCount(userID)
+	if err != nil {
+		utils.LogError("Failed to reset user daily search count", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to reset user daily search count"})
+		return
+	}
+
+	utils.LogInfo(fmt.Sprintf("Admin reset daily search count for user: %s (%s)", user.Email, user.Name))
+	c.JSON(http.StatusOK, gin.H{
+		"message": "User daily search count reset successfully",
+		"user": gin.H{
+			"id":    user.ID,
+			"name":  user.Name,
+			"email": user.Email,
+		},
+		"note": "User's daily search count has been reset to 0",
 	})
 }
 

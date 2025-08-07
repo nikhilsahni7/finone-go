@@ -24,6 +24,7 @@ export interface SearchResponse {
   execution_time_ms: number;
   search_id: string;
   has_more: boolean;
+  message?: string; // Added for no results message
 }
 
 export interface SearchWithinRequest {
@@ -51,6 +52,7 @@ export interface EnhancedMobileSearchResponse {
   search_id: string;
   has_more: boolean;
   master_ids: string[];
+  message?: string; // Added for no results message
 }
 
 export interface UserProfile {

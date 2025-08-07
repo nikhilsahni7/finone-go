@@ -47,6 +47,7 @@ export default function UserManagement() {
     deleteUserAction,
     loadAnalytics,
     resetSearchCounts,
+    resetUserSearchCount,
     getNextReset,
     clearError,
     clearSuccess,
@@ -145,6 +146,16 @@ export default function UserManagement() {
       )
     ) {
       await resetSearchCounts();
+    }
+  };
+
+  const handleResetUserSearchCount = async (user: User) => {
+    if (
+      confirm(
+        `Are you sure you want to reset daily search count for ${user.name} (${user.email})?`
+      )
+    ) {
+      await resetUserSearchCount(user.id);
     }
   };
 
@@ -342,6 +353,7 @@ export default function UserManagement() {
             onEdit={handleEditUser}
             onViewAnalytics={handleViewAnalytics}
             onDelete={handleDeleteUser}
+            onResetSearchCount={handleResetUserSearchCount}
             loading={loading}
           />
 

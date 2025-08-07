@@ -103,9 +103,13 @@ func (s *SearchService) Search(userID uuid.UUID, req *models.SearchRequest) (*mo
 	// Log performance metrics to ClickHouse
 	s.logSearchPerformance(searchID, userID.String(), query, executionTime, len(results))
 
-	// Increment user's daily search count
-	if err := authService.IncrementSearchCount(userID); err != nil {
-		utils.LogError("Failed to increment search count", err)
+	// Only increment user's daily search count if we found results
+	if totalCount > 0 {
+		if err := authService.IncrementSearchCount(userID); err != nil {
+			utils.LogError("Failed to increment search count", err)
+		}
+	} else {
+		utils.LogInfo("No results found, search count not incremented")
 	}
 
 	return &models.SearchResponse{
@@ -580,6 +584,16 @@ func (s *SearchService) SearchWithin(userID uuid.UUID, req *models.SearchWithinR
 	}
 	s.logSearch(userID, &searchWithinReq, len(results), executionTime, newSearchID)
 
+	// Only increment search count if we found results (search within should count as a new search)
+	if totalCount > 0 {
+		authService := NewAuthService()
+		if err := authService.IncrementSearchCount(userID); err != nil {
+			utils.LogError("Failed to increment search count for search within", err)
+		}
+	} else {
+		utils.LogInfo("No results found in search within, search count not incremented")
+	}
+
 	return &models.SearchResponse{
 		Results:       results,
 		TotalCount:    totalCount,
@@ -678,6 +692,39 @@ func (s *SearchService) isMobileNumber(query string) bool {
 	cleaned := regexp.MustCompile(`\D`).ReplaceAllString(query, "")
 	// Check if it's 10-12 digits (typical mobile number length)
 	return len(cleaned) >= 10 && len(cleaned) <= 12
+}
+
+// isValidMasterID checks if a master ID is valid and not a partial/masked ID
+func (s *SearchService) isValidMasterID(masterID string) bool {
+	if masterID == "" {
+		return false
+	}
+
+	// Filter out partial/masked master IDs that contain 'x' characters
+	// These are typically used to mask sensitive data and should not be used for searching
+	if strings.Contains(strings.ToLower(masterID), "x") {
+		return false
+	}
+
+	// Filter out master IDs that are too short (likely partial matches)
+	// Valid master IDs should typically be at least 8-10 characters long
+	if len(masterID) < 8 {
+		return false
+	}
+
+	// Check if it's all digits or contains valid suffix characters
+	// Remove any valid suffix characters (letters) from the end
+	baseID := regexp.MustCompile(`[A-Za-z]*$`).ReplaceAllString(masterID, "")
+
+	// The base part should be all digits
+	if !regexp.MustCompile(`^\d+$`).MatchString(baseID) {
+		return false
+	}
+
+	// If the original masterID is longer than baseID, it means it has a suffix
+	// This is allowed as per requirements (e.g., 718834427584M)
+
+	return true
 }
 
 // shouldUseEnhancedMobileSearch determines if the search should use enhanced mobile search
@@ -792,7 +839,7 @@ func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.Enhan
 	// Step 2: Extract unique master_ids from direct matches
 	masterIDMap := make(map[string]bool)
 	for _, person := range directMatches {
-		if person.MasterID != "" {
+		if person.MasterID != "" && s.isValidMasterID(person.MasterID) {
 			masterIDMap[person.MasterID] = true
 		}
 	}
@@ -903,9 +950,13 @@ func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.Enhan
 	queryText := fmt.Sprintf("Enhanced mobile search: %s (found %d master_ids)", cleanedMobile, len(uniqueMasterIDs))
 	s.logSearchPerformance(searchID, userID.String(), queryText, executionTime, totalCount)
 
-	// Increment user's daily search count
-	if err := authService.IncrementSearchCount(userID); err != nil {
-		utils.LogError("Failed to increment search count", err)
+	// Only increment user's daily search count if we found results
+	if totalCount > 0 {
+		if err := authService.IncrementSearchCount(userID); err != nil {
+			utils.LogError("Failed to increment search count", err)
+		}
+	} else {
+		utils.LogInfo("No results found in enhanced mobile search, search count not incremented")
 	}
 
 	utils.LogInfo(fmt.Sprintf("Enhanced mobile search completed in %dms. Direct: %d, Master ID: %d, Total: %d",

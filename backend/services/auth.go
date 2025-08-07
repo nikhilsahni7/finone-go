@@ -512,6 +512,26 @@ func (s *AuthService) IncrementSearchCount(userID uuid.UUID) error {
 	return err
 }
 
+// ResetUserDailySearchCount resets the daily search count for a specific user to 0
+func (s *AuthService) ResetUserDailySearchCount(userID uuid.UUID) error {
+	istNow := time.Now().Add(5*time.Hour + 30*time.Minute) // Convert to IST
+	today := istNow.Format("2006-01-02")
+
+	// Delete the daily usage record for today - this effectively resets count to 0
+	query := `DELETE FROM daily_usage WHERE user_id = $1 AND date = $2`
+
+	result, err := database.PostgresDB.Exec(query, userID, today)
+	if err != nil {
+		return fmt.Errorf("failed to reset daily search count for user %s: %w", userID.String(), err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	utils.LogInfo(fmt.Sprintf("Reset daily search count for user %s: %d records affected for date %s",
+		userID.String(), rowsAffected, today))
+
+	return nil
+}
+
 // GetUserAnalytics returns analytics for all users (admin only)
 func (s *AuthService) GetUserAnalytics() ([]models.UserAnalytics, error) {
 	istNow := time.Now().Add(5*time.Hour + 30*time.Minute)

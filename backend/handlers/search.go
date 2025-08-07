@@ -72,6 +72,22 @@ func (h *SearchHandler) Search(c *gin.Context) {
 		return
 	}
 
+	// Add message if no results found
+	if response.TotalCount == 0 {
+		utils.LogInfo("Search completed successfully - No results found")
+		// Create response with no results message
+		responseWithMessage := gin.H{
+			"results":           response.Results,
+			"total_count":       response.TotalCount,
+			"execution_time_ms": response.ExecutionTime,
+			"search_id":         response.SearchID,
+			"has_more":          response.HasMore,
+			"message":           "No results found for your search criteria",
+		}
+		c.JSON(http.StatusOK, responseWithMessage)
+		return
+	}
+
 	utils.LogInfo("Search completed successfully")
 	c.JSON(http.StatusOK, response)
 }
@@ -267,6 +283,22 @@ func (h *SearchHandler) SearchWithin(c *gin.Context) {
 		return
 	}
 
+	// Add message if no results found
+	if response.TotalCount == 0 {
+		utils.LogInfo("Search within completed successfully - No results found")
+		// Create response with no results message
+		responseWithMessage := gin.H{
+			"results":           response.Results,
+			"total_count":       response.TotalCount,
+			"execution_time_ms": response.ExecutionTime,
+			"search_id":         response.SearchID,
+			"has_more":          response.HasMore,
+			"message":           "No results found within previous search results",
+		}
+		c.JSON(http.StatusOK, responseWithMessage)
+		return
+	}
+
 	utils.LogInfo("Search within completed successfully")
 	c.JSON(http.StatusOK, response)
 }
@@ -312,6 +344,26 @@ func (h *SearchHandler) EnhancedMobileSearch(c *gin.Context) {
 	if err != nil {
 		utils.LogError("Enhanced mobile search failed", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Enhanced mobile search failed"})
+		return
+	}
+
+	// Add message if no results found
+	if response.TotalCount == 0 {
+		utils.LogInfo("Enhanced mobile search completed successfully - No results found")
+		// Create response with no results message
+		responseWithMessage := gin.H{
+			"direct_matches":          response.DirectMatches,
+			"master_id_matches":       response.MasterIDMatches,
+			"total_direct_matches":    response.TotalDirectMatches,
+			"total_master_id_matches": response.TotalMasterIDMatches,
+			"total_count":             response.TotalCount,
+			"execution_time_ms":       response.ExecutionTime,
+			"search_id":               response.SearchID,
+			"has_more":                response.HasMore,
+			"master_ids":              response.MasterIDs,
+			"message":                 fmt.Sprintf("No results found for mobile number: %s", req.MobileNumber),
+		}
+		c.JSON(http.StatusOK, responseWithMessage)
 		return
 	}
 

@@ -13,6 +13,7 @@ import {
   getUserAnalytics,
   getUsers,
   resetDailySearchCounts,
+  resetUserDailySearchCount,
   updateUser,
   UpdateUserRequest,
   User,
@@ -41,6 +42,7 @@ export interface UseUsersReturn {
   deleteUserAction: (userId: string) => Promise<void>;
   loadAnalytics: () => Promise<void>;
   resetSearchCounts: () => Promise<void>;
+  resetUserSearchCount: (userId: string) => Promise<void>;
   getNextReset: () => Promise<{
     next_reset_time: string;
     next_reset_unix: number;
@@ -231,6 +233,25 @@ export const useUsers = (): UseUsersReturn => {
     }
   }, [loadAnalytics]);
 
+  const resetUserSearchCount = useCallback(
+    async (userId: string) => {
+      try {
+        setLoading(true);
+        setError(null);
+        await resetUserDailySearchCount(userId);
+        setSuccess("User daily search count reset successfully");
+
+        // Refresh analytics to show updated counts
+        await loadAnalytics();
+      } catch (err: any) {
+        setError(err.message || "Failed to reset user search count");
+      } finally {
+        setLoading(false);
+      }
+    },
+    [loadAnalytics]
+  );
+
   const getNextReset = useCallback(async () => {
     try {
       setError(null);
@@ -259,6 +280,7 @@ export const useUsers = (): UseUsersReturn => {
     deleteUserAction,
     loadAnalytics,
     resetSearchCounts,
+    resetUserSearchCount,
     getNextReset,
     clearError,
     clearSuccess,

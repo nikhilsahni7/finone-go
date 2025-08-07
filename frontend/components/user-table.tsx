@@ -3,6 +3,7 @@
 import {
   Activity,
   Edit,
+  RotateCcw,
   Shield,
   ShieldCheck,
   Trash2,
@@ -19,6 +20,7 @@ interface UserTableProps {
   onEdit: (user: User) => void;
   onViewAnalytics: (analytics: UserAnalytics) => void;
   onDelete: (user: User) => void;
+  onResetSearchCount: (user: User) => void;
   loading: boolean;
 }
 
@@ -28,6 +30,7 @@ export default function UserTable({
   onEdit,
   onViewAnalytics,
   onDelete,
+  onResetSearchCount,
   loading,
 }: UserTableProps) {
   const getUserAnalytics = (userId: string): UserAnalytics | undefined => {
@@ -230,6 +233,16 @@ export default function UserTable({
                         <Activity className="h-4 w-4" />
                       </Button>
                     )}
+
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => onResetSearchCount(user)}
+                      title="Reset Daily Search Count"
+                      className="hover:bg-blue-50 hover:border-blue-200 text-blue-600"
+                    >
+                      <RotateCcw className="h-4 w-4" />
+                    </Button>
 
                     {user.role !== "ADMIN" && (
                       <Button

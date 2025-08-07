@@ -78,6 +78,7 @@ export default function UserDashboard() {
   const [lastSearchTime, setLastSearchTime] = useState(0);
   const [showPasswordChangeModal, setShowPasswordChangeModal] = useState(false);
   const [isEnhancedMobileSearch, setIsEnhancedMobileSearch] = useState(false);
+  const [searchMessage, setSearchMessage] = useState(""); // For "No results found" message
 
   // Helper function to detect if search will use enhanced mobile search
   const isLikelyMobileNumber = (value: string) => {
@@ -259,6 +260,7 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
         setTotalResults(data.total_count || 0);
         setHasMore(data.has_more || false);
         setExecutionTime(data.execution_time_ms || 0);
+        setSearchMessage(data.message || ""); // Capture message from searchWithin
         setCurrentPage(1);
       } else {
         // Regular search - build field-specific search request
@@ -314,7 +316,7 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
         const data = await search(searchRequest);
 
         // Only update state if search was successful
-        if (data && data.results) {
+        if (data) {
           setSearchResults(data.results || []);
           setTotalResults(data.total_count || 0);
           setHasMore(data.has_more || false);
@@ -324,13 +326,16 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
           setCurrentPage(1);
           setIsSearchWithinMode(false);
           setSearchWithinQuery("");
+          setSearchMessage(data.message || ""); // Capture message from API
 
-          // Refresh user analytics to get updated daily usage ONLY after successful search
-          try {
-            const updatedAnalytics = await getMyAnalytics();
-            setUserAnalytics(updatedAnalytics);
-          } catch (err) {
-            console.error("Failed to refresh user analytics:", err);
+          // Refresh user analytics to get updated daily usage ONLY after successful search with results
+          if (data.total_count > 0) {
+            try {
+              const updatedAnalytics = await getMyAnalytics();
+              setUserAnalytics(updatedAnalytics);
+            } catch (err) {
+              console.error("Failed to refresh user analytics:", err);
+            }
           }
         }
       }
@@ -466,6 +471,7 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
     setOriginalSearchResults([]);
     setError("");
     setIsEnhancedMobileSearch(false); // Reset enhanced mobile search flag
+    setSearchMessage(""); // Clear search message
 
     // Clear all search criteria
     setSearchCriteria({
@@ -785,7 +791,7 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
             </Card>
 
             {/* Search Results - Appears Below Search Form */}
-            {searchResults.length > 0 && (
+            {(searchResults.length > 0 || searchMessage) && (
               <Card className="shadow-sm">
                 <CardHeader className="pb-4">
                   <div className="flex items-center justify-between">
@@ -794,21 +800,34 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
                         <Search className="w-5 h-5 text-blue-600 mr-2" />
                         Search Results
                       </CardTitle>
-                      <div className="flex items-center space-x-3 mt-2">
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                          {totalResults.toLocaleString()} results
-                        </span>
-                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                          {executionTime}ms
-                        </span>
-                        <span className="text-sm text-gray-600">
-                          Showing {searchResults.length} of{" "}
-                          {totalResults.toLocaleString()}
-                        </span>
-                      </div>
+                      {searchResults.length > 0 ? (
+                        <div className="flex items-center space-x-3 mt-2">
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
+                            {totalResults.toLocaleString()} results
+                          </span>
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                            {executionTime}ms
+                          </span>
+                          <span className="text-sm text-gray-600">
+                            Showing {searchResults.length} of{" "}
+                            {totalResults.toLocaleString()}
+                          </span>
+                        </div>
+                      ) : (
+                        searchMessage && (
+                          <div className="flex items-center space-x-3 mt-2">
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
+                              0 results
+                            </span>
+                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                              {executionTime}ms
+                            </span>
+                          </div>
+                        )
+                      )}
                     </div>
                     <div className="flex space-x-2">
-                      {searchId && (
+                      {searchId && searchResults.length > 0 && (
                         <Button
                           variant="outline"
                           size="sm"
@@ -876,174 +895,204 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
                     </div>
                   )}
 
+                  {/* No Results Message */}
+                  {searchMessage && searchResults.length === 0 && (
+                    <div className="text-center py-8">
+                      <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
+                        <div className="flex flex-col items-center space-y-3">
+                          <Search className="w-12 h-12 text-gray-400" />
+                          <h3 className="text-lg font-medium text-gray-900">
+                            No Results Found
+                          </h3>
+                          <p className="text-gray-600 text-center max-w-md">
+                            {searchMessage}
+                          </p>
+                          <div className="flex space-x-3 mt-4">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={resetSearch}
+                              className="text-blue-600 border-blue-600 hover:bg-blue-50"
+                            >
+                              <RefreshCw className="w-4 h-4 mr-2" />
+                              Try Different Search
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
                   {/* Results */}
-                  <div className="space-y-3">
-                    {searchResults.map(
-                      (result: SearchResult, index: number) => {
-                        const searchTerms = getSearchTerms();
-                        return (
-                          <div
-                            key={result.id || index}
-                            className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all duration-200"
-                          >
-                            {/* Header with Name and Result Number */}
-                            <div className="flex items-center justify-between mb-3">
-                              <h3 className="font-semibold text-gray-900 text-lg">
-                                <span
-                                  dangerouslySetInnerHTML={{
-                                    __html: highlightSearchTerms(
-                                      result.name,
-                                      searchTerms
-                                    ),
-                                  }}
-                                />
-                              </h3>
-                              <div className="flex items-center space-x-2">
-                                <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-                                  #{index + 1}
-                                </span>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => copyToClipboard(result)}
-                                  className="text-blue-600 border-blue-600 hover:bg-blue-50"
-                                >
-                                  <Copy className="w-3 h-3 mr-1" />
-                                  Copy
-                                </Button>
-                              </div>
-                            </div>
-
-                            {/* Contact Information */}
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                              <div className="space-y-3">
-                                {result.mobile && (
-                                  <div className="flex items-start">
-                                    <span className="text-gray-500 font-medium text-sm w-24">
-                                      Mobile:
-                                    </span>
-                                    <span className="text-blue-600 font-medium text-sm">
-                                      {formatFieldValue(
-                                        result.mobile,
-                                        "mobile"
-                                      )}
-                                    </span>
-                                  </div>
-                                )}
-
-                                <div className="flex items-start">
-                                  <span className="text-gray-500 font-medium text-sm w-24">
-                                    Father Name:
-                                  </span>
+                  {searchResults.length > 0 && (
+                    <div className="space-y-3">
+                      {searchResults.map(
+                        (result: SearchResult, index: number) => {
+                          const searchTerms = getSearchTerms();
+                          return (
+                            <div
+                              key={result.id || index}
+                              className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all duration-200"
+                            >
+                              {/* Header with Name and Result Number */}
+                              <div className="flex items-center justify-between mb-3">
+                                <h3 className="font-semibold text-gray-900 text-lg">
                                   <span
-                                    className="text-gray-700 text-sm"
                                     dangerouslySetInnerHTML={{
                                       __html: highlightSearchTerms(
-                                        result.fname,
+                                        result.name,
                                         searchTerms
                                       ),
                                     }}
                                   />
+                                </h3>
+                                <div className="flex items-center space-x-2">
+                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
+                                    #{index + 1}
+                                  </span>
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => copyToClipboard(result)}
+                                    className="text-blue-600 border-blue-600 hover:bg-blue-50"
+                                  >
+                                    <Copy className="w-3 h-3 mr-1" />
+                                    Copy
+                                  </Button>
                                 </div>
+                              </div>
 
-                                {result.email && (
+                              {/* Contact Information */}
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="space-y-3">
+                                  {result.mobile && (
+                                    <div className="flex items-start">
+                                      <span className="text-gray-500 font-medium text-sm w-24">
+                                        Mobile:
+                                      </span>
+                                      <span className="text-blue-600 font-medium text-sm">
+                                        {formatFieldValue(
+                                          result.mobile,
+                                          "mobile"
+                                        )}
+                                      </span>
+                                    </div>
+                                  )}
+
                                   <div className="flex items-start">
                                     <span className="text-gray-500 font-medium text-sm w-24">
-                                      Email:
+                                      Father Name:
+                                    </span>
+                                    <span
+                                      className="text-gray-700 text-sm"
+                                      dangerouslySetInnerHTML={{
+                                        __html: highlightSearchTerms(
+                                          result.fname,
+                                          searchTerms
+                                        ),
+                                      }}
+                                    />
+                                  </div>
+
+                                  {result.email && (
+                                    <div className="flex items-start">
+                                      <span className="text-gray-500 font-medium text-sm w-24">
+                                        Email:
+                                      </span>
+                                      <span
+                                        className="text-gray-700 text-sm"
+                                        dangerouslySetInnerHTML={{
+                                          __html: highlightSearchTerms(
+                                            formatFieldValue(
+                                              result.email,
+                                              "email"
+                                            ),
+                                            searchTerms
+                                          ),
+                                        }}
+                                      />
+                                    </div>
+                                  )}
+
+                                  {result.master_id && (
+                                    <div className="flex items-start">
+                                      <span className="text-gray-500 font-medium text-sm w-24">
+                                        Master ID:
+                                      </span>
+                                      <span
+                                        className="text-gray-700 text-sm"
+                                        dangerouslySetInnerHTML={{
+                                          __html: highlightSearchTerms(
+                                            result.master_id,
+                                            searchTerms
+                                          ),
+                                        }}
+                                      />
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="space-y-3">
+                                  <div className="flex items-start">
+                                    <span className="text-gray-500 font-medium text-sm w-24">
+                                      Address:
                                     </span>
                                     <span
                                       className="text-gray-700 text-sm"
                                       dangerouslySetInnerHTML={{
                                         __html: highlightSearchTerms(
                                           formatFieldValue(
-                                            result.email,
-                                            "email"
+                                            result.address,
+                                            "address"
                                           ),
                                           searchTerms
                                         ),
                                       }}
                                     />
                                   </div>
-                                )}
 
-                                {result.master_id && (
                                   <div className="flex items-start">
                                     <span className="text-gray-500 font-medium text-sm w-24">
-                                      Master ID:
+                                      Circle:
                                     </span>
                                     <span
                                       className="text-gray-700 text-sm"
                                       dangerouslySetInnerHTML={{
                                         __html: highlightSearchTerms(
-                                          result.master_id,
+                                          result.circle,
                                           searchTerms
                                         ),
                                       }}
                                     />
                                   </div>
-                                )}
-                              </div>
 
-                              <div className="space-y-3">
-                                <div className="flex items-start">
-                                  <span className="text-gray-500 font-medium text-sm w-24">
-                                    Address:
-                                  </span>
-                                  <span
-                                    className="text-gray-700 text-sm"
-                                    dangerouslySetInnerHTML={{
-                                      __html: highlightSearchTerms(
-                                        formatFieldValue(
-                                          result.address,
-                                          "address"
-                                        ),
-                                        searchTerms
-                                      ),
-                                    }}
-                                  />
+                                  {result.alt && (
+                                    <div className="flex items-start">
+                                      <span className="text-gray-500 font-medium text-sm w-24">
+                                        Alternate:
+                                      </span>
+                                      <span
+                                        className="text-gray-700 text-sm"
+                                        dangerouslySetInnerHTML={{
+                                          __html: highlightSearchTerms(
+                                            result.alt,
+                                            searchTerms
+                                          ),
+                                        }}
+                                      />
+                                    </div>
+                                  )}
                                 </div>
-
-                                <div className="flex items-start">
-                                  <span className="text-gray-500 font-medium text-sm w-24">
-                                    Circle:
-                                  </span>
-                                  <span
-                                    className="text-gray-700 text-sm"
-                                    dangerouslySetInnerHTML={{
-                                      __html: highlightSearchTerms(
-                                        result.circle,
-                                        searchTerms
-                                      ),
-                                    }}
-                                  />
-                                </div>
-
-                                {result.alt && (
-                                  <div className="flex items-start">
-                                    <span className="text-gray-500 font-medium text-sm w-24">
-                                      Alternate:
-                                    </span>
-                                    <span
-                                      className="text-gray-700 text-sm"
-                                      dangerouslySetInnerHTML={{
-                                        __html: highlightSearchTerms(
-                                          result.alt,
-                                          searchTerms
-                                        ),
-                                      }}
-                                    />
-                                  </div>
-                                )}
                               </div>
                             </div>
-                          </div>
-                        );
-                      }
-                    )}
-                  </div>
+                          );
+                        }
+                      )}
+                    </div>
+                  )}
 
                   {/* Load More Button */}
-                  {hasMore && (
+                  {hasMore && searchResults.length > 0 && (
                     <div className="mt-6 text-center">
                       <Button
                         onClick={handleLoadMore}
