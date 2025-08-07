@@ -27,15 +27,6 @@ export interface SearchResponse {
   message?: string; // Added for no results message
 }
 
-export interface SearchWithinRequest {
-  search_id: string;
-  query: string;
-  fields?: string[];
-  match_type?: "partial" | "full";
-  limit?: number;
-  offset?: number;
-}
-
 export interface EnhancedMobileSearchRequest {
   mobile_number: string;
   limit?: number;
@@ -178,14 +169,6 @@ export async function search(query: SearchRequest): Promise<SearchResponse> {
   });
 }
 
-export async function searchWithin(
-  request: SearchWithinRequest
-): Promise<SearchResponse> {
-  return apiCall("/api/v1/search/within", {
-    method: "POST",
-    body: JSON.stringify(request),
-  });
-}
 
 export async function enhancedMobileSearch(
   request: EnhancedMobileSearchRequest

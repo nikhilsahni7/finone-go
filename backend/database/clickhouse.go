@@ -68,7 +68,16 @@ func RunClickHouseMigrations() error {
 			circle String,
 			email String,
 			created_at DateTime DEFAULT now(),
-			updated_at DateTime DEFAULT now()
+			updated_at DateTime DEFAULT now(),
+			-- Secondary indexes for accelerating LIKE/ILIKE searches
+			INDEX idx_name_ngram name TYPE ngrambf_v1(3, 256, 2) GRANULARITY 4,
+			INDEX idx_fname_ngram fname TYPE ngrambf_v1(3, 256, 2) GRANULARITY 4,
+			INDEX idx_address_ngram address TYPE ngrambf_v1(3, 256, 2) GRANULARITY 4,
+			INDEX idx_email_token email TYPE tokenbf_v1(1024) GRANULARITY 4,
+			INDEX idx_circle_token circle TYPE tokenbf_v1(1024) GRANULARITY 4,
+			INDEX idx_mobile_token mobile TYPE tokenbf_v1(1024) GRANULARITY 4,
+			INDEX idx_alt_token alt TYPE tokenbf_v1(1024) GRANULARITY 4,
+			INDEX idx_master_id_token master_id TYPE tokenbf_v1(1024) GRANULARITY 4
 		)
 		ENGINE = MergeTree()
 		ORDER BY (mobile, name, master_id)

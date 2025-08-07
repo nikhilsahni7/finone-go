@@ -4,33 +4,32 @@ import PasswordChangeModal from "@/components/password-change-modal";
 import ProtectedRoute from "@/components/protected-route";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import {
   ApiError,
   SearchRequest,
-  SearchWithinRequest,
   UserAnalytics,
   exportSearchResults,
   getMyAnalytics,
   search,
-  searchWithin,
 } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { buildSearchFingerprint } from "@/lib/utils";
+
+import CacheNotice from "@/components/search/CacheNotice";
+import SearchForm from "@/components/search/SearchForm";
+import SearchResults from "@/components/search/SearchResults";
+import SearchWithin from "@/components/search/SearchWithin";
 import {
   AlertCircle,
-  ChevronRight,
   Clock,
-  Copy,
-  Download,
   Key,
-  Loader2,
   LogOut,
   RefreshCw,
-  Search,
+  TrendingUp,
+  User as UserIcon,
 } from "lucide-react";
 import Image from "next/image";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 interface SearchResult {
   id: string;
@@ -44,17 +43,20 @@ interface SearchResult {
   master_id?: string;
 }
 
+const defaultCriteria = {
+  customerName: "",
+  fatherName: "",
+  mobileNumber: "",
+  alternateNumber: "",
+  emailAddress: "",
+  masterId: "",
+  address: "",
+  pincode: "",
+};
+
 export default function UserDashboard() {
   const { user: currentUser, logout: authLogout, refreshUser } = useAuth();
-  const [searchCriteria, setSearchCriteria] = useState({
-    customerName: "",
-    fatherName: "",
-    mobileNumber: "",
-    alternateNumber: "",
-    emailAddress: "",
-    masterId: "",
-    address: "",
-  });
+  const [searchCriteria, setSearchCriteria] = useState({ ...defaultCriteria });
 
   const [searchLogic, setSearchLogic] = useState<"AND" | "OR">("AND");
   const [userAnalytics, setUserAnalytics] = useState<UserAnalytics | null>(
@@ -71,14 +73,22 @@ export default function UserDashboard() {
   const [executionTime, setExecutionTime] = useState(0);
   const [searchId, setSearchId] = useState("");
   const [searchWithinQuery, setSearchWithinQuery] = useState("");
-  const [isSearchWithinMode, setIsSearchWithinMode] = useState(false);
   const [originalSearchResults, setOriginalSearchResults] = useState<
     SearchResult[]
   >([]);
   const [lastSearchTime, setLastSearchTime] = useState(0);
   const [showPasswordChangeModal, setShowPasswordChangeModal] = useState(false);
   const [isEnhancedMobileSearch, setIsEnhancedMobileSearch] = useState(false);
-  const [searchMessage, setSearchMessage] = useState(""); // For "No results found" message
+  const [searchMessage, setSearchMessage] = useState("");
+  const [restoredFromCache, setRestoredFromCache] = useState(false);
+
+  // Refs for scrolling behavior
+  const resultsRef = useRef<HTMLDivElement | null>(null);
+  const searchCardRef = useRef<HTMLDivElement | null>(null);
+
+  const CACHE_KEY_PREFIX = "finone:last_search:";
+  const getCacheKey = () =>
+    `${CACHE_KEY_PREFIX}${currentUser?.id || "anonymous"}`;
 
   // Helper function to detect if search will use enhanced mobile search
   const isLikelyMobileNumber = (value: string) => {
@@ -89,21 +99,38 @@ export default function UserDashboard() {
 
   // Helper function to detect if current search criteria will trigger enhanced mobile search
   const willUseEnhancedMobileSearch = () => {
-    // Check if mobile number field has a mobile-like value
-    if (
-      searchCriteria.mobileNumber &&
-      isLikelyMobileNumber(searchCriteria.mobileNumber)
-    ) {
-      return true;
-    }
-    // Check if alternate number field has a mobile-like value
-    if (
-      searchCriteria.alternateNumber &&
-      isLikelyMobileNumber(searchCriteria.alternateNumber)
-    ) {
-      return true;
-    }
-    return false;
+    // Only trigger if exactly one of mobileNumber or alternateNumber is non-empty
+    // and looks like a mobile number, and all other fields are empty
+    const otherFieldsEmpty =
+      !searchCriteria.customerName.trim() &&
+      !searchCriteria.fatherName.trim() &&
+      !searchCriteria.emailAddress.trim() &&
+      !searchCriteria.masterId.trim() &&
+      !searchCriteria.address.trim() &&
+      !(searchCriteria.pincode || "").trim();
+
+    const mobileSet = searchCriteria.mobileNumber?.trim() || "";
+    const altSet = searchCriteria.alternateNumber?.trim() || "";
+
+    const mobileLooks = isLikelyMobileNumber(mobileSet);
+    const altLooks = isLikelyMobileNumber(altSet);
+
+    const countMobileFields = (mobileSet ? 1 : 0) + (altSet ? 1 : 0);
+
+    if (!otherFieldsEmpty) return false;
+    if (countMobileFields !== 1) return false;
+    return mobileLooks || altLooks;
+  };
+
+  // Smoothly scroll viewport to the results section
+  const scrollToResults = () => {
+    if (typeof window === "undefined") return;
+    window.requestAnimationFrame(() => {
+      resultsRef.current?.scrollIntoView({
+        behavior: "smooth",
+        block: "start",
+      });
+    });
   };
 
   // Helper function to highlight searched terms
@@ -126,17 +153,19 @@ export default function UserDashboard() {
 
   // Helper function to get search terms from current search
   const getSearchTerms = () => {
-    const terms = [];
+    const terms = [] as string[];
 
     // Add search criteria terms
     Object.values(searchCriteria).forEach((value) => {
-      if (value.trim()) {
-        terms.push(value.trim());
+      const v =
+        typeof value === "string" ? value : value == null ? "" : String(value);
+      if (v.trim()) {
+        terms.push(v.trim());
       }
     });
 
-    // Add search within query if in search within mode
-    if (isSearchWithinMode && searchWithinQuery.trim()) {
+    // Add search within query if present
+    if (searchWithinQuery.trim()) {
       terms.push(searchWithinQuery.trim());
     }
 
@@ -172,7 +201,6 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
     navigator.clipboard
       .writeText(data)
       .then(() => {
-        // You could add a toast notification here
         console.log("Copied to clipboard");
       })
       .catch((err) => {
@@ -180,21 +208,105 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
       });
   };
 
+  // Cache helpers
+  const buildRequestAndFingerprint = () => {
+    const fieldQueries: { [key: string]: string } = {};
+    if (searchCriteria.customerName.trim())
+      fieldQueries.name = searchCriteria.customerName.trim();
+    if (searchCriteria.fatherName.trim())
+      fieldQueries.fname = searchCriteria.fatherName.trim();
+    if (searchCriteria.mobileNumber.trim())
+      fieldQueries.mobile = searchCriteria.mobileNumber.trim();
+    if (searchCriteria.alternateNumber.trim())
+      fieldQueries.alt = searchCriteria.alternateNumber.trim();
+    if (searchCriteria.emailAddress.trim())
+      fieldQueries.email = searchCriteria.emailAddress.trim();
+    if (searchCriteria.masterId.trim())
+      fieldQueries.master_id = searchCriteria.masterId.trim();
+    if (searchCriteria.address.trim())
+      fieldQueries.address = searchCriteria.address.trim();
+    if ((searchCriteria.pincode || "").trim())
+      fieldQueries.pincode = (searchCriteria.pincode || "").trim();
+
+    const request: SearchRequest = {
+      query: Object.values(fieldQueries).join(" "),
+      field_queries: fieldQueries,
+      fields: Object.keys(fieldQueries),
+      logic: searchLogic,
+      match_type: "partial",
+      limit: pageSize,
+      offset: 0,
+      search_within: false,
+    } as any;
+
+    const fingerprint = buildSearchFingerprint({
+      query: request.query,
+      fields: request.fields,
+      field_queries: request.field_queries,
+      logic: request.logic,
+      match_type: request.match_type,
+      enhanced_mobile: willUseEnhancedMobileSearch(),
+    });
+
+    return { request, fingerprint };
+  };
+
+  const saveCache = (payload: {
+    fingerprint: string;
+    request: any;
+    response: any;
+    criteria: typeof searchCriteria;
+    logic: typeof searchLogic;
+  }) => {
+    try {
+      localStorage.setItem(
+        getCacheKey(),
+        JSON.stringify({
+          ...payload,
+          saved_at: Date.now(),
+        })
+      );
+    } catch {}
+  };
+
+  const loadCache = () => {
+    try {
+      const raw = localStorage.getItem(getCacheKey());
+      if (!raw) return null;
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  };
+
+  // Initialize dashboard and restore cache
   useEffect(() => {
     const initializeDashboard = async () => {
       try {
-        // Check if user is authenticated is handled by ProtectedRoute
         if (!currentUser) {
           return;
         }
 
-        // Fetch user analytics from backend
         const analytics = await getMyAnalytics();
         setUserAnalytics(analytics);
+
+        // Restore cache
+        const cached = loadCache();
+        if (cached?.response) {
+          setSearchResults(cached.response.results || []);
+          setTotalResults(cached.response.total_count || 0);
+          setHasMore(cached.response.has_more || false);
+          setExecutionTime(cached.response.execution_time_ms || 0);
+          setSearchId(cached.response.search_id || "");
+          setOriginalSearchResults(cached.response.results || []);
+          // Merge with defaults to ensure new fields (like pincode) are defined
+          setSearchCriteria({ ...defaultCriteria, ...(cached.criteria || {}) });
+          setSearchLogic(cached.logic || "AND");
+          setRestoredFromCache(true);
+        }
       } catch (err) {
         console.error("Dashboard initialization error:", err);
         if (err instanceof ApiError && err.status === 401) {
-          // Auth context will handle this automatically
           return;
         }
         setError("Failed to load dashboard data");
@@ -204,6 +316,7 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
     };
 
     initializeDashboard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser]);
 
   const handleInputChange = (field: string, value: string) => {
@@ -220,7 +333,7 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
     return 1000;
   };
 
-  const handleSearch = async (e: React.FormEvent, isSearchWithin = false) => {
+  const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
 
     // Prevent multiple simultaneous searches
@@ -239,103 +352,73 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
     setError("");
 
     try {
-      if (isSearchWithin) {
-        // Search within previous results
-        if (!searchId || !searchWithinQuery.trim()) {
-          setError("Please enter a search term to search within results");
-          return;
-        }
+      // Regular search - build field-specific search request
+      const { request: baseRequest, fingerprint } =
+        buildRequestAndFingerprint();
 
-        const searchWithinRequest: SearchWithinRequest = {
-          search_id: searchId,
-          query: searchWithinQuery.trim(),
-          fields: ["name", "fname", "mobile", "address", "email", "master_id"],
-          match_type: "partial",
-          limit: pageSize,
-          offset: 0,
-        };
-
-        const data = await searchWithin(searchWithinRequest);
+      // If we have cached response with same fingerprint, reuse it and skip network
+      const cached = loadCache();
+      if (cached && cached.fingerprint === fingerprint && cached.response) {
+        const data = cached.response;
         setSearchResults(data.results || []);
         setTotalResults(data.total_count || 0);
         setHasMore(data.has_more || false);
         setExecutionTime(data.execution_time_ms || 0);
-        setSearchMessage(data.message || ""); // Capture message from searchWithin
+        setSearchId(data.search_id || "");
+        setOriginalSearchResults(data.results || []);
         setCurrentPage(1);
-      } else {
-        // Regular search - build field-specific search request
-        const fieldQueries: { [key: string]: string } = {};
+        setSearchWithinQuery("");
+        setSearchMessage(data.message || "");
+        setRestoredFromCache(true);
+        scrollToResults();
+        return;
+      }
 
-        // Map frontend form fields to backend field names
-        if (searchCriteria.customerName.trim()) {
-          fieldQueries.name = searchCriteria.customerName.trim();
-        }
-        if (searchCriteria.fatherName.trim()) {
-          fieldQueries.fname = searchCriteria.fatherName.trim();
-        }
-        if (searchCriteria.mobileNumber.trim()) {
-          fieldQueries.mobile = searchCriteria.mobileNumber.trim();
-        }
-        if (searchCriteria.alternateNumber.trim()) {
-          fieldQueries.alt = searchCriteria.alternateNumber.trim();
-        }
-        if (searchCriteria.emailAddress.trim()) {
-          fieldQueries.email = searchCriteria.emailAddress.trim();
-        }
-        if (searchCriteria.masterId.trim()) {
-          fieldQueries.master_id = searchCriteria.masterId.trim();
-        }
-        if (searchCriteria.address.trim()) {
-          fieldQueries.address = searchCriteria.address.trim();
-        }
+      const optimalPageSize = getOptimalPageSize(1000);
+      setPageSize(optimalPageSize);
 
-        if (Object.keys(fieldQueries).length === 0) {
-          setError("Please fill at least one search field");
-          return;
-        }
+      // Detect if enhanced mobile search will be used
+      const willUseEnhanced = willUseEnhancedMobileSearch();
+      setIsEnhancedMobileSearch(willUseEnhanced);
 
-        const optimalPageSize = getOptimalPageSize(1000);
-        setPageSize(optimalPageSize);
+      const searchRequest: SearchRequest = {
+        ...baseRequest,
+        limit: optimalPageSize,
+        offset: 0,
+      };
 
-        // Detect if enhanced mobile search will be used
-        const willUseEnhanced = willUseEnhancedMobileSearch();
-        setIsEnhancedMobileSearch(willUseEnhanced);
+      const data = await search(searchRequest);
 
-        // Create search request with field-specific queries
-        const searchRequest: SearchRequest = {
-          query: Object.values(fieldQueries).join(" "), // Fallback for compatibility
-          field_queries: fieldQueries, // Field-specific queries (preferred)
-          fields: Object.keys(fieldQueries), // List of fields being searched
+      // Only update state if search was successful
+      if (data) {
+        setSearchResults(data.results || []);
+        setTotalResults(data.total_count || 0);
+        setHasMore(data.has_more || false);
+        setExecutionTime(data.execution_time_ms || 0);
+        setSearchId(data.search_id || "");
+        setOriginalSearchResults(data.results || []);
+        setCurrentPage(1);
+        setSearchWithinQuery("");
+        setSearchMessage(data.message || "");
+        setRestoredFromCache(false);
+        scrollToResults();
+
+        // Save to cache
+        saveCache({
+          fingerprint,
+          request: searchRequest,
+          response: data,
+          criteria: searchCriteria,
           logic: searchLogic,
-          match_type: "partial",
-          limit: optimalPageSize,
-          offset: 0,
-        };
+        });
 
-        console.log("Sending search request:", searchRequest);
-        const data = await search(searchRequest);
-
-        // Only update state if search was successful
-        if (data) {
-          setSearchResults(data.results || []);
-          setTotalResults(data.total_count || 0);
-          setHasMore(data.has_more || false);
-          setExecutionTime(data.execution_time_ms || 0);
-          setSearchId(data.search_id || "");
-          setOriginalSearchResults(data.results || []);
-          setCurrentPage(1);
-          setIsSearchWithinMode(false);
-          setSearchWithinQuery("");
-          setSearchMessage(data.message || ""); // Capture message from API
-
-          // Refresh user analytics to get updated daily usage ONLY after successful search with results
-          if (data.total_count > 0) {
-            try {
-              const updatedAnalytics = await getMyAnalytics();
-              setUserAnalytics(updatedAnalytics);
-            } catch (err) {
-              console.error("Failed to refresh user analytics:", err);
-            }
+        // Refresh user analytics after successful search with results
+        if (data.total_count > 0) {
+          try {
+            const updatedAnalytics = await getMyAnalytics();
+            setUserAnalytics(updatedAnalytics);
+          } catch (err) {
+            console.error("Failed to refresh user analytics:", err);
           }
         }
       }
@@ -358,64 +441,91 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
     try {
       const offset = currentPage * pageSize;
 
-      if (isSearchWithinMode) {
-        const searchWithinRequest: SearchWithinRequest = {
-          search_id: searchId,
-          query: searchWithinQuery,
-          fields: ["name", "fname", "mobile", "address", "email", "master_id"],
-          match_type: "partial",
-          limit: pageSize,
-          offset: offset,
-        };
+      // Build field-specific search request for load more (same as handleSearch)
+      const fieldQueries: { [key: string]: string } = {};
 
-        const data = await searchWithin(searchWithinRequest);
-        if (data && data.results) {
+      // Map frontend form fields to backend field names
+      if (searchCriteria.customerName.trim()) {
+        fieldQueries.name = searchCriteria.customerName.trim();
+      }
+      if (searchCriteria.fatherName.trim()) {
+        fieldQueries.fname = searchCriteria.fatherName.trim();
+      }
+      if (searchCriteria.mobileNumber.trim()) {
+        fieldQueries.mobile = searchCriteria.mobileNumber.trim();
+      }
+      if (searchCriteria.alternateNumber.trim()) {
+        fieldQueries.alt = searchCriteria.alternateNumber.trim();
+      }
+      if (searchCriteria.emailAddress.trim()) {
+        fieldQueries.email = searchCriteria.emailAddress.trim();
+      }
+      if (searchCriteria.masterId.trim()) {
+        fieldQueries.master_id = searchCriteria.masterId.trim();
+      }
+      if (searchCriteria.address.trim()) {
+        fieldQueries.address = searchCriteria.address.trim();
+      }
+      if ((searchCriteria.pincode || "").trim()) {
+        fieldQueries.pincode = (searchCriteria.pincode || "").trim();
+      }
+
+      const searchRequest: SearchRequest = {
+        query: Object.values(fieldQueries).join(" "),
+        field_queries: fieldQueries,
+        fields: Object.keys(fieldQueries),
+        logic: searchLogic,
+        match_type: "partial",
+        limit: pageSize,
+        offset: offset,
+      };
+
+      const data = await search(searchRequest);
+      if (data && data.results) {
+        // Update base results and displayed results
+        setOriginalSearchResults((prev) => [...prev, ...(data.results || [])]);
+
+        if (searchWithinQuery.trim()) {
+          // If filtering is active, recompute filtered view after appending
+          const start = performance.now();
+          const filtered = filterResults(
+            [...originalSearchResults, ...(data.results || [])],
+            searchWithinQuery
+          );
+          const elapsed = Math.round(performance.now() - start);
+          setSearchResults(filtered);
+          setTotalResults(filtered.length);
+          setExecutionTime(elapsed);
+          setHasMore(false);
+        } else {
+          // No filter, simply append
           setSearchResults((prev) => [...prev, ...(data.results || [])]);
           setHasMore(data.has_more || false);
           setCurrentPage((prev) => prev + 1);
         }
-      } else {
-        // Build field-specific search request for load more (same as handleSearch)
-        const fieldQueries: { [key: string]: string } = {};
 
-        // Map frontend form fields to backend field names
-        if (searchCriteria.customerName.trim()) {
-          fieldQueries.name = searchCriteria.customerName.trim();
-        }
-        if (searchCriteria.fatherName.trim()) {
-          fieldQueries.fname = searchCriteria.fatherName.trim();
-        }
-        if (searchCriteria.mobileNumber.trim()) {
-          fieldQueries.mobile = searchCriteria.mobileNumber.trim();
-        }
-        if (searchCriteria.alternateNumber.trim()) {
-          fieldQueries.alt = searchCriteria.alternateNumber.trim();
-        }
-        if (searchCriteria.emailAddress.trim()) {
-          fieldQueries.email = searchCriteria.emailAddress.trim();
-        }
-        if (searchCriteria.masterId.trim()) {
-          fieldQueries.master_id = searchCriteria.masterId.trim();
-        }
-        if (searchCriteria.address.trim()) {
-          fieldQueries.address = searchCriteria.address.trim();
-        }
-
-        const searchRequest: SearchRequest = {
-          query: Object.values(fieldQueries).join(" "), // Fallback for compatibility
-          field_queries: fieldQueries, // Field-specific queries (preferred)
-          fields: Object.keys(fieldQueries), // List of fields being searched
-          logic: searchLogic,
-          match_type: "partial",
-          limit: pageSize,
-          offset: offset,
-        };
-
-        const data = await search(searchRequest);
-        if (data && data.results) {
-          setSearchResults((prev) => [...prev, ...(data.results || [])]);
-          setHasMore(data.has_more || false);
-          setCurrentPage((prev) => prev + 1);
+        // Update cache to append page results
+        const cached = loadCache();
+        if (
+          cached &&
+          cached.response &&
+          cached.response.search_id === data.search_id
+        ) {
+          const merged = {
+            ...cached.response,
+            results: [
+              ...(cached.response.results || []),
+              ...(data.results || []),
+            ],
+            has_more: data.has_more,
+          };
+          saveCache({
+            fingerprint: cached.fingerprint,
+            request: cached.request,
+            response: merged,
+            criteria: cached.criteria,
+            logic: cached.logic,
+          });
         }
       }
     } catch (err) {
@@ -466,23 +576,15 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
     setHasMore(false);
     setExecutionTime(0);
     setSearchId("");
-    setIsSearchWithinMode(false);
     setSearchWithinQuery("");
     setOriginalSearchResults([]);
     setError("");
-    setIsEnhancedMobileSearch(false); // Reset enhanced mobile search flag
-    setSearchMessage(""); // Clear search message
+    setIsEnhancedMobileSearch(false);
+    setSearchMessage("");
+    setRestoredFromCache(false);
 
     // Clear all search criteria
-    setSearchCriteria({
-      customerName: "",
-      fatherName: "",
-      mobileNumber: "",
-      alternateNumber: "",
-      emailAddress: "",
-      masterId: "",
-      address: "",
-    });
+    setSearchCriteria({ ...defaultCriteria });
 
     // Reset search logic to AND
     setSearchLogic("AND");
@@ -498,6 +600,47 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
         });
     }
   };
+
+  // Client-side filter: filter within originalSearchResults when query changes
+  const filterResults = (base: SearchResult[], query: string) => {
+    const q = query.trim().toLowerCase();
+    if (!q) return base;
+
+    const fields: (keyof SearchResult)[] = [
+      "name",
+      "fname",
+      "mobile",
+      "address",
+      "email",
+      "master_id",
+      "alt",
+      "circle",
+    ];
+
+    return base.filter((item) =>
+      fields.some((f) =>
+        String((item as any)[f] || "")
+          .toLowerCase()
+          .includes(q)
+      )
+    );
+  };
+
+  useEffect(() => {
+    // Recompute filtered results whenever query or base results change
+    const start = performance.now();
+    const filtered = filterResults(originalSearchResults, searchWithinQuery);
+    const elapsed = Math.round(performance.now() - start);
+    setSearchResults(filtered);
+    if (searchWithinQuery.trim()) {
+      setTotalResults(filtered.length);
+      setHasMore(false);
+      setExecutionTime(elapsed);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchWithinQuery, originalSearchResults]);
+
+  // Moved metrics below the currentUser guard
 
   if (isInitializing) {
     return (
@@ -529,18 +672,24 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
     );
   }
 
+  const user = currentUser as NonNullable<typeof currentUser>;
   const remainingSearches =
-    currentUser.max_searches_per_day - (userAnalytics?.today_searches || 0);
-  const usagePercentage = userAnalytics
-    ? (userAnalytics.today_searches / currentUser.max_searches_per_day) * 100
-    : 0;
+    user.max_searches_per_day - (userAnalytics?.today_searches || 0);
+  const safeTodaySearches = userAnalytics?.today_searches || 0;
+  const usagePercentage = (safeTodaySearches / user.max_searches_per_day) * 100;
+  const initials = (user.name || "")
+    .split(" ")
+    .map((s) => s[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gray-50">
+      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
         {/* Header */}
-        <div className="bg-white border-b border-gray-200 px-6 py-4">
-          <div className="flex items-center justify-between">
+        <div className="bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60 border-b border-gray-200 px-6 py-4 sticky top-0 z-40">
+          <div className="max-w-screen-2xl mx-auto flex items-center justify-between">
             <div className="flex items-center space-x-4">
               <Image
                 src="/logo-final.png"
@@ -553,18 +702,26 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
                   Customer Search
                 </h1>
                 <p className="text-sm text-gray-600">
-                  Welcome back, {currentUser.name}
+                  Welcome back, {user.name}
                 </p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <div className="text-right">
-                <p className="text-sm text-gray-600">Daily Usage</p>
-                <p className="text-lg font-semibold text-gray-900">
+              <div className="hidden sm:flex items-center space-x-2 bg-gray-100 px-3 py-2 rounded-lg">
+                <span className="text-xs text-gray-600">Daily Usage</span>
+                <span className="text-sm font-semibold text-gray-900">
                   {userAnalytics?.today_searches || 0}/
-                  {currentUser.max_searches_per_day}
-                </p>
+                  {user.max_searches_per_day}
+                </span>
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={resetSearch}
+                className="text-blue-700 border-blue-300 hover:bg-blue-50"
+              >
+                <RefreshCw className="w-4 h-4 mr-2" /> Reset
+              </Button>
               <Button
                 variant="outline"
                 size="sm"
@@ -574,10 +731,15 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
                 <Key className="w-4 h-4 mr-2" />
                 Change Password
               </Button>
+              <div className="hidden md:flex items-center">
+                <div className="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center mr-3 text-sm font-semibold">
+                  {initials || "U"}
+                </div>
+              </div>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={handleSignOut}
+                onClick={authLogout}
                 className="text-gray-700 border-gray-300 hover:bg-gray-50"
               >
                 <LogOut className="w-4 h-4 mr-2" />
@@ -587,9 +749,9 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
           </div>
         </div>
 
-        <div className="flex">
+        <div className="max-w-screen-2xl mx-auto flex">
           {/* Main Content */}
-          <div className="flex-1 p-6">
+          <div className="flex-1 p-8">
             {/* Error Message */}
             {error && (
               <div className="flex items-center space-x-2 p-4 bg-red-50 border border-red-200 rounded-lg mb-6">
@@ -598,528 +760,131 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
               </div>
             )}
 
-            {/* Search Form - Fixed Position */}
-            <Card className="shadow-sm mb-6">
-              <CardHeader>
-                <div className="flex items-center">
-                  <Search className="w-5 h-5 text-blue-600 mr-2" />
-                  <CardTitle className="text-lg text-gray-900">
-                    Customer Search
-                  </CardTitle>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <form
-                  onSubmit={(e) => handleSearch(e, false)}
-                  className="space-y-6"
-                >
-                  {/* Search Logic */}
-                  <div className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg">
-                    <span className="text-sm font-medium text-gray-700">
-                      Search Logic:
-                    </span>
-                    <select
-                      value={searchLogic}
-                      onChange={(e) =>
-                        setSearchLogic(e.target.value as "AND" | "OR")
-                      }
-                      className="border border-gray-300 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="AND">AND</option>
-                      <option value="OR">OR</option>
-                    </select>
-                    <span className="text-sm text-gray-600">
-                      {searchLogic === "AND"
-                        ? "All filled fields must match (precise search)"
-                        : "Any field can match (broader search)"}
-                    </span>
-                  </div>
+            {/* Cache Notice */}
+            {restoredFromCache && <CacheNotice />}
 
-                  {/* Search Fields */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label
-                        htmlFor="masterId"
-                        className="text-sm font-medium text-gray-700"
-                      >
-                        Master ID
-                      </Label>
-                      <Input
-                        id="masterId"
-                        placeholder="Enter Master ID"
-                        value={searchCriteria.masterId}
-                        onChange={(e) =>
-                          handleInputChange("masterId", e.target.value)
-                        }
-                        className="focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
+            {/* Search Form (single card) */}
+            <div className="flex justify-end mb-2">
+              {willUseEnhancedMobileSearch() && (
+                <span className="text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1 rounded">
+                  Enhanced mobile matching
+                </span>
+              )}
+            </div>
+            <SearchForm
+              searchCriteria={searchCriteria as any}
+              onChange={handleInputChange as any}
+              searchLogic={searchLogic}
+              onChangeLogic={setSearchLogic}
+              isLoading={isLoading}
+              remainingSearches={remainingSearches}
+              onSubmit={handleSearch}
+            />
 
-                    <div className="space-y-2">
-                      <Label
-                        htmlFor="customerName"
-                        className="text-sm font-medium text-gray-700"
-                      >
-                        Customer Name
-                      </Label>
-                      <Input
-                        id="customerName"
-                        placeholder="Enter customer name"
-                        value={searchCriteria.customerName}
-                        onChange={(e) =>
-                          handleInputChange("customerName", e.target.value)
-                        }
-                        className="focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label
-                        htmlFor="fatherName"
-                        className="text-sm font-medium text-gray-700"
-                      >
-                        Father Name
-                      </Label>
-                      <Input
-                        id="fatherName"
-                        placeholder="Enter father's name"
-                        value={searchCriteria.fatherName}
-                        onChange={(e) =>
-                          handleInputChange("fatherName", e.target.value)
-                        }
-                        className="focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label
-                        htmlFor="mobileNumber"
-                        className="text-sm font-medium text-gray-700"
-                      >
-                        Mobile Number
-                      </Label>
-                      <Input
-                        id="mobileNumber"
-                        placeholder="Enter mobile number"
-                        value={searchCriteria.mobileNumber}
-                        onChange={(e) =>
-                          handleInputChange("mobileNumber", e.target.value)
-                        }
-                        className="focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label
-                        htmlFor="alternateNumber"
-                        className="text-sm font-medium text-gray-700"
-                      >
-                        Alternate Number
-                      </Label>
-                      <Input
-                        id="alternateNumber"
-                        placeholder="Enter alternate number"
-                        value={searchCriteria.alternateNumber}
-                        onChange={(e) =>
-                          handleInputChange("alternateNumber", e.target.value)
-                        }
-                        className="focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label
-                        htmlFor="emailAddress"
-                        className="text-sm font-medium text-gray-700"
-                      >
-                        Email Address
-                      </Label>
-                      <Input
-                        id="emailAddress"
-                        placeholder="Enter email address"
-                        value={searchCriteria.emailAddress}
-                        onChange={(e) =>
-                          handleInputChange("emailAddress", e.target.value)
-                        }
-                        className="focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div className="space-y-2">
-                      <Label
-                        htmlFor="address"
-                        className="text-sm font-medium text-gray-700"
-                      >
-                        Address
-                      </Label>
-                      <Input
-                        id="address"
-                        placeholder="Enter address or location"
-                        value={searchCriteria.address}
-                        onChange={(e) =>
-                          handleInputChange("address", e.target.value)
-                        }
-                        className="focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-                  </div>
-
-                  <Button
-                    type="submit"
-                    className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 text-lg font-medium transition-colors"
-                    disabled={isLoading || remainingSearches <= 0}
-                  >
-                    {isLoading ? (
-                      <div className="flex items-center">
-                        <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                        Searching...
-                      </div>
-                    ) : remainingSearches <= 0 ? (
-                      <>
-                        <AlertCircle className="w-5 h-5 mr-2" />
-                        Daily Limit Reached
-                      </>
-                    ) : (
-                      <>
-                        <Search className="w-5 h-5 mr-2" />
-                        Search ({remainingSearches} remaining)
-                      </>
-                    )}
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
-
-            {/* Search Results - Appears Below Search Form */}
-            {(searchResults.length > 0 || searchMessage) && (
-              <Card className="shadow-sm">
-                <CardHeader className="pb-4">
-                  <div className="flex items-center justify-between">
+            {/* Stats Bar */}
+            {(totalResults > 0 || searchMessage) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 my-6">
+                <Card className="shadow-sm">
+                  <CardContent className="py-4 flex items-center justify-between">
                     <div>
-                      <CardTitle className="text-lg flex items-center text-gray-900">
-                        <Search className="w-5 h-5 text-blue-600 mr-2" />
-                        Search Results
-                      </CardTitle>
-                      {searchResults.length > 0 ? (
-                        <div className="flex items-center space-x-3 mt-2">
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                            {totalResults.toLocaleString()} results
-                          </span>
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            {executionTime}ms
-                          </span>
-                          <span className="text-sm text-gray-600">
-                            Showing {searchResults.length} of{" "}
-                            {totalResults.toLocaleString()}
-                          </span>
-                        </div>
-                      ) : (
-                        searchMessage && (
-                          <div className="flex items-center space-x-3 mt-2">
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                              0 results
-                            </span>
-                            <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                              {executionTime}ms
-                            </span>
-                          </div>
-                        )
-                      )}
+                      <p className="text-xs text-gray-500">Total Results</p>
+                      <p className="text-xl font-semibold text-gray-900">
+                        {totalResults}
+                      </p>
                     </div>
-                    <div className="flex space-x-2">
-                      {searchId && searchResults.length > 0 && (
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={handleExport}
-                          className="text-green-600 border-green-600 hover:bg-green-50"
-                        >
-                          <Download className="w-4 h-4 mr-2" />
-                          Export
-                        </Button>
-                      )}
-                      <Button variant="outline" size="sm" onClick={resetSearch}>
-                        <RefreshCw className="w-4 h-4 mr-2" />
-                        New Search
-                      </Button>
+                    <TrendingUp className="w-5 h-5 text-gray-400" />
+                  </CardContent>
+                </Card>
+                <Card className="shadow-sm">
+                  <CardContent className="py-4 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-gray-500">Execution Time</p>
+                      <p className="text-xl font-semibold text-gray-900">
+                        {executionTime} ms
+                      </p>
                     </div>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  {/* Search Within */}
-                  {searchResults.length > 0 && !isSearchWithinMode && (
-                    <div className="mb-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
-                      <div className="flex items-center space-x-2 mb-2">
-                        <Search className="w-4 h-4 text-blue-600" />
-                        <h3 className="font-medium text-blue-900">
-                          Search Within Results
-                        </h3>
-                      </div>
-                      <div className="flex space-x-2">
-                        <Input
-                          placeholder="Search within these results..."
-                          value={searchWithinQuery}
-                          onChange={(e) => setSearchWithinQuery(e.target.value)}
-                          className="flex-1"
-                        />
-                        <Button
-                          size="sm"
-                          onClick={(e) => {
-                            setIsSearchWithinMode(true);
-                            handleSearch(e, true);
-                          }}
-                          disabled={!searchWithinQuery.trim() || isLoading}
-                        >
-                          {isLoading ? (
-                            <div className="flex items-center">
-                              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
-                              Searching...
-                            </div>
-                          ) : (
-                            "Search"
-                          )}
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Search Within Loading State */}
-                  {isSearchWithinMode && isLoading && (
-                    <div className="mb-4 p-4 bg-yellow-50 rounded-lg border border-yellow-200">
-                      <div className="flex items-center space-x-2">
-                        <Loader2 className="w-4 h-4 text-yellow-600 animate-spin" />
-                        <span className="text-yellow-800 font-medium">
-                          Searching within results for "{searchWithinQuery}"...
-                        </span>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* No Results Message */}
-                  {searchMessage && searchResults.length === 0 && (
-                    <div className="text-center py-8">
-                      <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-                        <div className="flex flex-col items-center space-y-3">
-                          <Search className="w-12 h-12 text-gray-400" />
-                          <h3 className="text-lg font-medium text-gray-900">
-                            No Results Found
-                          </h3>
-                          <p className="text-gray-600 text-center max-w-md">
-                            {searchMessage}
-                          </p>
-                          <div className="flex space-x-3 mt-4">
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={resetSearch}
-                              className="text-blue-600 border-blue-600 hover:bg-blue-50"
-                            >
-                              <RefreshCw className="w-4 h-4 mr-2" />
-                              Try Different Search
-                            </Button>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Results */}
-                  {searchResults.length > 0 && (
-                    <div className="space-y-3">
-                      {searchResults.map(
-                        (result: SearchResult, index: number) => {
-                          const searchTerms = getSearchTerms();
-                          return (
-                            <div
-                              key={result.id || index}
-                              className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all duration-200"
-                            >
-                              {/* Header with Name and Result Number */}
-                              <div className="flex items-center justify-between mb-3">
-                                <h3 className="font-semibold text-gray-900 text-lg">
-                                  <span
-                                    dangerouslySetInnerHTML={{
-                                      __html: highlightSearchTerms(
-                                        result.name,
-                                        searchTerms
-                                      ),
-                                    }}
-                                  />
-                                </h3>
-                                <div className="flex items-center space-x-2">
-                                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-                                    #{index + 1}
-                                  </span>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => copyToClipboard(result)}
-                                    className="text-blue-600 border-blue-600 hover:bg-blue-50"
-                                  >
-                                    <Copy className="w-3 h-3 mr-1" />
-                                    Copy
-                                  </Button>
-                                </div>
-                              </div>
-
-                              {/* Contact Information */}
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div className="space-y-3">
-                                  {result.mobile && (
-                                    <div className="flex items-start">
-                                      <span className="text-gray-500 font-medium text-sm w-24">
-                                        Mobile:
-                                      </span>
-                                      <span className="text-blue-600 font-medium text-sm">
-                                        {formatFieldValue(
-                                          result.mobile,
-                                          "mobile"
-                                        )}
-                                      </span>
-                                    </div>
-                                  )}
-
-                                  <div className="flex items-start">
-                                    <span className="text-gray-500 font-medium text-sm w-24">
-                                      Father Name:
-                                    </span>
-                                    <span
-                                      className="text-gray-700 text-sm"
-                                      dangerouslySetInnerHTML={{
-                                        __html: highlightSearchTerms(
-                                          result.fname,
-                                          searchTerms
-                                        ),
-                                      }}
-                                    />
-                                  </div>
-
-                                  {result.email && (
-                                    <div className="flex items-start">
-                                      <span className="text-gray-500 font-medium text-sm w-24">
-                                        Email:
-                                      </span>
-                                      <span
-                                        className="text-gray-700 text-sm"
-                                        dangerouslySetInnerHTML={{
-                                          __html: highlightSearchTerms(
-                                            formatFieldValue(
-                                              result.email,
-                                              "email"
-                                            ),
-                                            searchTerms
-                                          ),
-                                        }}
-                                      />
-                                    </div>
-                                  )}
-
-                                  {result.master_id && (
-                                    <div className="flex items-start">
-                                      <span className="text-gray-500 font-medium text-sm w-24">
-                                        Master ID:
-                                      </span>
-                                      <span
-                                        className="text-gray-700 text-sm"
-                                        dangerouslySetInnerHTML={{
-                                          __html: highlightSearchTerms(
-                                            result.master_id,
-                                            searchTerms
-                                          ),
-                                        }}
-                                      />
-                                    </div>
-                                  )}
-                                </div>
-
-                                <div className="space-y-3">
-                                  <div className="flex items-start">
-                                    <span className="text-gray-500 font-medium text-sm w-24">
-                                      Address:
-                                    </span>
-                                    <span
-                                      className="text-gray-700 text-sm"
-                                      dangerouslySetInnerHTML={{
-                                        __html: highlightSearchTerms(
-                                          formatFieldValue(
-                                            result.address,
-                                            "address"
-                                          ),
-                                          searchTerms
-                                        ),
-                                      }}
-                                    />
-                                  </div>
-
-                                  <div className="flex items-start">
-                                    <span className="text-gray-500 font-medium text-sm w-24">
-                                      Circle:
-                                    </span>
-                                    <span
-                                      className="text-gray-700 text-sm"
-                                      dangerouslySetInnerHTML={{
-                                        __html: highlightSearchTerms(
-                                          result.circle,
-                                          searchTerms
-                                        ),
-                                      }}
-                                    />
-                                  </div>
-
-                                  {result.alt && (
-                                    <div className="flex items-start">
-                                      <span className="text-gray-500 font-medium text-sm w-24">
-                                        Alternate:
-                                      </span>
-                                      <span
-                                        className="text-gray-700 text-sm"
-                                        dangerouslySetInnerHTML={{
-                                          __html: highlightSearchTerms(
-                                            result.alt,
-                                            searchTerms
-                                          ),
-                                        }}
-                                      />
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-                          );
-                        }
-                      )}
-                    </div>
-                  )}
-
-                  {/* Load More Button */}
-                  {hasMore && searchResults.length > 0 && (
-                    <div className="mt-6 text-center">
-                      <Button
-                        onClick={handleLoadMore}
-                        disabled={isLoading}
-                        className="bg-purple-600 hover:bg-purple-700"
+                    <Clock className="w-5 h-5 text-gray-400" />
+                  </CardContent>
+                </Card>
+                <Card className="shadow-sm">
+                  <CardContent className="py-4 flex items-center justify-between">
+                    <div>
+                      <p className="text-xs text-gray-500">Source</p>
+                      <p
+                        className={`text-sm font-semibold ${
+                          restoredFromCache
+                            ? "text-amber-700"
+                            : "text-emerald-700"
+                        }`}
                       >
-                        {isLoading ? (
-                          <div className="flex items-center">
-                            <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                            Loading...
-                          </div>
-                        ) : (
-                          <>
-                            <ChevronRight className="w-4 h-4 mr-2" />
-                            Load More Results
-                          </>
-                        )}
-                      </Button>
+                        {restoredFromCache ? "From Cache" : "Live"}
+                      </p>
                     </div>
-                  )}
-                </CardContent>
-              </Card>
+                  </CardContent>
+                </Card>
+              </div>
+            )}
+
+            {/* Client-side Search Within */}
+            {originalSearchResults.length > 0 && (
+              <SearchWithin
+                query={searchWithinQuery}
+                onQueryChange={(v) => {
+                  setSearchWithinQuery(v);
+                  // Scroll into view on first filter activation
+                  if (v && !searchWithinQuery) {
+                    scrollToResults();
+                  }
+                }}
+                disabled={isLoading}
+              />
+            )}
+
+            {/* Search Results */}
+            {(searchResults.length > 0 || searchMessage) && (
+              <div ref={resultsRef} id="results" className="scroll-mt-[120px]">
+                <SearchResults
+                  searchResults={searchResults}
+                  totalResults={totalResults}
+                  executionTime={executionTime}
+                  hasMore={hasMore && !searchWithinQuery.trim()}
+                  isLoading={isLoading}
+                  searchId={searchId}
+                  searchMessage={searchMessage}
+                  onLoadMore={handleLoadMore}
+                  onExport={handleExport}
+                  onCopy={copyToClipboard}
+                  highlight={(text, terms) => highlightSearchTerms(text, terms)}
+                  getSearchTerms={getSearchTerms}
+                />
+              </div>
             )}
           </div>
 
-          {/* Right Panel - Daily Usage */}
-          <div className="w-80 bg-white border-l border-gray-200 p-6">
+          {/* Right Panel - Profile + Daily Usage */}
+          <div className="w-80 bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60 border-l border-gray-200 p-6 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">
+            <Card className="shadow-sm mb-6">
+              <CardHeader className="pb-3">
+                <div className="flex items-center">
+                  <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center mr-3 text-sm font-semibold">
+                    {initials || "U"}
+                  </div>
+                  <div>
+                    <CardTitle className="text-base text-gray-900">
+                      {user.name}
+                    </CardTitle>
+                    <p className="text-xs text-gray-600">Signed in</p>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="pt-0">
+                <div className="flex items-center text-xs text-gray-600">
+                  <UserIcon className="w-4 h-4 mr-1" />
+                  User Dashboard
+                </div>
+              </CardContent>
+            </Card>
+
             <div className="mb-6">
               <h3 className="text-lg font-semibold text-gray-900 mb-4">
                 Daily Usage
@@ -1138,7 +903,7 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
               <CardContent className="space-y-4">
                 <p className="text-sm text-gray-600">
                   Searches used today: {userAnalytics?.today_searches || 0} of{" "}
-                  {currentUser.max_searches_per_day} remaining.
+                  {user.max_searches_per_day} remaining.
                 </p>
 
                 <div className="w-full bg-gray-200 rounded-full h-3">
@@ -1150,9 +915,7 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
                         ? "bg-yellow-600"
                         : "bg-green-600"
                     }`}
-                    style={{
-                      width: `${Math.min(usagePercentage, 100)}%`,
-                    }}
+                    style={{ width: `${Math.min(usagePercentage, 100)}%` }}
                   ></div>
                 </div>
 

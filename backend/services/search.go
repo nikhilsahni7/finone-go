@@ -2,12 +2,15 @@ package services
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"finone-search-system/database"
 	"finone-search-system/models"
 	"finone-search-system/utils"
 	"fmt"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -18,6 +21,98 @@ type SearchService struct{}
 
 func NewSearchService() *SearchService {
 	return &SearchService{}
+}
+
+// computeSearchFingerprint generates a stable fingerprint for a search request that ignores pagination
+// and focuses on the query semantics only. It sorts maps and arrays to ensure determinism.
+func (s *SearchService) computeSearchFingerprint(req *models.SearchRequest) string {
+	// Normalize values
+	logic := strings.ToUpper(strings.TrimSpace(req.Logic))
+	if logic != "AND" {
+		logic = "OR"
+	}
+	matchType := strings.ToLower(strings.TrimSpace(req.MatchType))
+	if matchType != "full" {
+		matchType = "partial"
+	}
+
+	// Sort fields
+	sortedFields := make([]string, 0, len(req.Fields))
+	sortedFields = append(sortedFields, req.Fields...)
+	sort.Strings(sortedFields)
+
+	// Sort field queries by key and normalize values
+	fqPairs := make([]string, 0, len(req.FieldQueries))
+	for k, v := range req.FieldQueries {
+		fqPairs = append(fqPairs, fmt.Sprintf("%s=%s", strings.ToLower(strings.TrimSpace(k)), strings.TrimSpace(v)))
+	}
+	sort.Strings(fqPairs)
+
+	base := strings.Builder{}
+	base.WriteString("logic=")
+	base.WriteString(logic)
+	base.WriteString(";match=")
+	base.WriteString(matchType)
+	base.WriteString(";enh=")
+	if req.EnhancedMobile {
+		base.WriteString("1")
+	} else {
+		base.WriteString("0")
+	}
+	base.WriteString(";q=")
+	base.WriteString(strings.TrimSpace(req.Query))
+	base.WriteString(";fields=")
+	base.WriteString(strings.Join(sortedFields, ","))
+	base.WriteString(";field_queries=")
+	base.WriteString(strings.Join(fqPairs, ","))
+
+	sum := sha256.Sum256([]byte(base.String()))
+	return hex.EncodeToString(sum[:])
+}
+
+// isDuplicateSearchToday checks if a search with the same fingerprint already exists today for the user
+func (s *SearchService) isDuplicateSearchToday(userID uuid.UUID, fingerprint string) (bool, error) {
+	query := `SELECT 1 FROM searches WHERE user_id = $1 AND search_time::date = CURRENT_DATE AND search_query ->> 'fingerprint' = $2 LIMIT 1`
+	var tmp int
+	err := database.PostgresDB.Get(&tmp, query, userID, fingerprint)
+	if err != nil {
+		// If no rows, sqlx returns an error; treat as not duplicate
+		return false, nil
+	}
+	return true, nil
+}
+
+// helper: build condition for a field/value considering virtual fields like pincode
+func (s *SearchService) buildFieldCondition(field string, value string, matchType string, args *[]interface{}) (string, bool) {
+	// Virtual field: pincode is extracted from address; prefer whole-token/6-digit match
+	if field == "pincode" {
+		clean := strings.TrimSpace(value)
+		if clean == "" {
+			return "", false
+		}
+		// Ensure only digits
+		digits := regexp.MustCompile(`\D`).ReplaceAllString(clean, "")
+		if len(digits) < 4 {
+			return "", false
+		}
+		// Fast path: substring with ILIKE utilizes ngram index; also add a stronger regex filter
+		// We combine both to balance speed and precision
+		// 1) address ILIKE %digits%
+		c1 := "address ILIKE ?"
+		*args = append(*args, "%"+digits+"%")
+		// 2) match 6+ digit boundaries in address using ClickHouse match (re2)
+		// Use match(address, '(^|[^0-9])digits([^0-9]|$)') to reduce false positives
+		pattern := fmt.Sprintf("(^|[^0-9])%s([^0-9]|$)", regexp.QuoteMeta(digits))
+		c2 := "match(address, ?)"
+		*args = append(*args, pattern)
+		return fmt.Sprintf("(%s AND %s)", c1, c2), true
+	}
+
+	// Normal fields
+	if matchType == "full" {
+		return fmt.Sprintf("%s = ?", field), true
+	}
+	return fmt.Sprintf("%s ILIKE ?", field), true
 }
 
 // Search performs a search operation on the people data
@@ -97,19 +192,25 @@ func (s *SearchService) Search(userID uuid.UUID, req *models.SearchRequest) (*mo
 	// Check if there are more results beyond the limit
 	hasMore := (req.Offset + len(results)) < totalCount
 
-	// Log the search
-	s.logSearch(userID, req, len(results), executionTime, searchID)
+	// Duplicate detection (based on semantic query, ignoring pagination)
+	fingerprint := s.computeSearchFingerprint(req)
+	isDup, _ := s.isDuplicateSearchToday(userID, fingerprint)
+
+	// Log the search (including fingerprint)
+	s.logSearch(userID, req, len(results), executionTime, searchID, fingerprint)
 
 	// Log performance metrics to ClickHouse
 	s.logSearchPerformance(searchID, userID.String(), query, executionTime, len(results))
 
-	// Only increment user's daily search count if we found results
-	if totalCount > 0 {
+	// Only increment user's daily search count if we found results and not a duplicate
+	if totalCount > 0 && !isDup {
 		if err := authService.IncrementSearchCount(userID); err != nil {
 			utils.LogError("Failed to increment search count", err)
 		}
-	} else {
+	} else if totalCount == 0 {
 		utils.LogInfo("No results found, search count not incremented")
+	} else if isDup {
+		utils.LogInfo("Duplicate search detected for today, search count not incremented")
 	}
 
 	return &models.SearchResponse{
@@ -137,17 +238,26 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 				continue
 			}
 
-			if strings.TrimSpace(value) == "" {
+			val := strings.TrimSpace(value)
+			if val == "" {
 				continue
 			}
 
 			var condition string
+			if field == "pincode" {
+				c, ok := s.buildFieldCondition("pincode", val, req.MatchType, &args)
+				if ok {
+					conditions = append(conditions, c)
+				}
+				continue
+			}
+
 			if req.MatchType == "full" {
 				condition = fmt.Sprintf("%s = ?", field)
-				args = append(args, value)
+				args = append(args, val)
 			} else {
-				condition = fmt.Sprintf("lower(%s) LIKE lower(?)", field)
-				args = append(args, "%"+value+"%")
+				condition = fmt.Sprintf("%s ILIKE ?", field)
+				args = append(args, "%"+val+"%")
 			}
 			conditions = append(conditions, condition)
 		}
@@ -163,7 +273,7 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 				condition = fmt.Sprintf("%s = ?", field)
 				args = append(args, req.Query)
 			} else {
-				condition = fmt.Sprintf("lower(%s) LIKE lower(?)", field)
+				condition = fmt.Sprintf("%s ILIKE ?", field)
 				args = append(args, "%"+req.Query+"%")
 			}
 			conditions = append(conditions, condition)
@@ -179,7 +289,7 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 				args = append(args, req.Query)
 			}
 		} else {
-			condition := "(lower(mobile) LIKE lower(?) OR lower(name) LIKE lower(?) OR lower(fname) LIKE lower(?) OR lower(address) LIKE lower(?) OR lower(alt) LIKE lower(?) OR lower(circle) LIKE lower(?) OR lower(email) LIKE lower(?) OR lower(master_id) LIKE lower(?))"
+			condition := "(mobile ILIKE ? OR name ILIKE ? OR fname ILIKE ? OR address ILIKE ? OR alt ILIKE ? OR circle ILIKE ? OR email ILIKE ? OR master_id ILIKE ?)"
 			conditions = append(conditions, condition)
 			queryWithWildcard := "%" + req.Query + "%"
 			for i := 0; i < 8; i++ {
@@ -231,17 +341,26 @@ func (s *SearchService) getTotalCount(req *models.SearchRequest, ctx context.Con
 				continue
 			}
 
-			if strings.TrimSpace(value) == "" {
+			val := strings.TrimSpace(value)
+			if val == "" {
+				continue
+			}
+
+			if field == "pincode" {
+				c, ok := s.buildFieldCondition("pincode", val, req.MatchType, &args)
+				if ok {
+					conditions = append(conditions, c)
+				}
 				continue
 			}
 
 			var condition string
 			if req.MatchType == "full" {
 				condition = fmt.Sprintf("%s = ?", field)
-				args = append(args, value)
+				args = append(args, val)
 			} else {
-				condition = fmt.Sprintf("lower(%s) LIKE lower(?)", field)
-				args = append(args, "%"+value+"%")
+				condition = fmt.Sprintf("%s ILIKE ?", field)
+				args = append(args, "%"+val+"%")
 			}
 			conditions = append(conditions, condition)
 		}
@@ -257,7 +376,7 @@ func (s *SearchService) getTotalCount(req *models.SearchRequest, ctx context.Con
 				condition = fmt.Sprintf("%s = ?", field)
 				args = append(args, req.Query)
 			} else {
-				condition = fmt.Sprintf("lower(%s) LIKE lower(?)", field)
+				condition = fmt.Sprintf("%s ILIKE ?", field)
 				args = append(args, "%"+req.Query+"%")
 			}
 			conditions = append(conditions, condition)
@@ -273,7 +392,7 @@ func (s *SearchService) getTotalCount(req *models.SearchRequest, ctx context.Con
 				args = append(args, req.Query)
 			}
 		} else {
-			condition := "(lower(mobile) LIKE lower(?) OR lower(name) LIKE lower(?) OR lower(fname) LIKE lower(?) OR lower(address) LIKE lower(?) OR lower(alt) LIKE lower(?) OR lower(circle) LIKE lower(?) OR lower(email) LIKE lower(?) OR lower(master_id) LIKE lower(?))"
+			condition := "(mobile ILIKE ? OR name ILIKE ? OR fname ILIKE ? OR address ILIKE ? OR alt ILIKE ? OR circle ILIKE ? OR email ILIKE ? OR master_id ILIKE ?)"
 			conditions = append(conditions, condition)
 			queryWithWildcard := "%" + req.Query + "%"
 			for i := 0; i < 8; i++ {
@@ -322,7 +441,7 @@ func (s *SearchService) getSearchWithinTotalCount(originalReq *models.SearchRequ
 				condition = fmt.Sprintf("%s = ?", field)
 				args = append(args, value)
 			} else {
-				condition = fmt.Sprintf("lower(%s) LIKE lower(?)", field)
+				condition = fmt.Sprintf("%s ILIKE ?", field)
 				args = append(args, "%"+value+"%")
 			}
 			originalConditions = append(originalConditions, condition)
@@ -339,7 +458,7 @@ func (s *SearchService) getSearchWithinTotalCount(originalReq *models.SearchRequ
 				condition = fmt.Sprintf("%s = ?", field)
 				args = append(args, originalReq.Query)
 			} else {
-				condition = fmt.Sprintf("lower(%s) LIKE lower(?)", field)
+				condition = fmt.Sprintf("%s ILIKE ?", field)
 				args = append(args, "%"+originalReq.Query+"%")
 			}
 			originalConditions = append(originalConditions, condition)
@@ -353,7 +472,7 @@ func (s *SearchService) getSearchWithinTotalCount(originalReq *models.SearchRequ
 				args = append(args, originalReq.Query)
 			}
 		} else {
-			condition := "(lower(mobile) LIKE lower(?) OR lower(name) LIKE lower(?) OR lower(fname) LIKE lower(?) OR lower(address) LIKE lower(?) OR lower(alt) LIKE lower(?) OR lower(circle) LIKE lower(?) OR lower(email) LIKE lower(?) OR lower(master_id) LIKE lower(?))"
+			condition := "(mobile ILIKE ? OR name ILIKE ? OR fname ILIKE ? OR address ILIKE ? OR alt ILIKE ? OR circle ILIKE ? OR email ILIKE ? OR master_id ILIKE ?)"
 			originalConditions = append(originalConditions, condition)
 			queryWithWildcard := "%" + originalReq.Query + "%"
 			for i := 0; i < 8; i++ {
@@ -379,7 +498,7 @@ func (s *SearchService) getSearchWithinTotalCount(originalReq *models.SearchRequ
 			condition = fmt.Sprintf("%s = ?", field)
 			args = append(args, withinReq.Query)
 		} else {
-			condition = fmt.Sprintf("lower(%s) LIKE lower(?)", field)
+			condition = fmt.Sprintf("%s ILIKE ?", field)
 			args = append(args, "%"+withinReq.Query+"%")
 		}
 		newConditions = append(newConditions, condition)
@@ -424,6 +543,8 @@ func (s *SearchService) isValidField(field string) bool {
 		"circle":    true,
 		"email":     true,
 		"master_id": true,
+		// virtual field
+		"pincode": true,
 	}
 	return validFields[field]
 }
@@ -482,9 +603,14 @@ func (s *SearchService) GetSearchStats() (map[string]interface{}, error) {
 	return stats, nil
 }
 
-// logSearch logs a search operation to PostgreSQL
-func (s *SearchService) logSearch(userID uuid.UUID, req *models.SearchRequest, resultCount, executionTime int, searchID string) {
-	queryData, _ := json.Marshal(req)
+// logSearch logs a search operation to PostgreSQL, embedding the fingerprint into the stored JSON
+func (s *SearchService) logSearch(userID uuid.UUID, req *models.SearchRequest, resultCount, executionTime int, searchID, fingerprint string) {
+	// Marshal req then inject fingerprint in a deterministic way
+	raw, _ := json.Marshal(req)
+	var obj map[string]interface{}
+	_ = json.Unmarshal(raw, &obj)
+	obj["fingerprint"] = fingerprint
+	queryData, _ := json.Marshal(obj)
 
 	query := `INSERT INTO searches (id, user_id, search_query, result_count, execution_time_ms)
 	          VALUES ($1, $2, $3, $4, $5)`
@@ -582,16 +708,20 @@ func (s *SearchService) SearchWithin(userID uuid.UUID, req *models.SearchWithinR
 		Limit:     req.Limit,
 		Offset:    req.Offset,
 	}
-	s.logSearch(userID, &searchWithinReq, len(results), executionTime, newSearchID)
+	fingerprint := s.computeSearchFingerprint(&searchWithinReq)
+	isDup, _ := s.isDuplicateSearchToday(userID, fingerprint)
+	s.logSearch(userID, &searchWithinReq, len(results), executionTime, newSearchID, fingerprint)
 
-	// Only increment search count if we found results (search within should count as a new search)
-	if totalCount > 0 {
+	// Only increment search count if we found results (search within should count as a new search) and not duplicate
+	if totalCount > 0 && !isDup {
 		authService := NewAuthService()
 		if err := authService.IncrementSearchCount(userID); err != nil {
 			utils.LogError("Failed to increment search count for search within", err)
 		}
-	} else {
+	} else if totalCount == 0 {
 		utils.LogInfo("No results found in search within, search count not incremented")
+	} else if isDup {
+		utils.LogInfo("Duplicate search-within detected for today, search count not incremented")
 	}
 
 	return &models.SearchResponse{
@@ -621,7 +751,7 @@ func (s *SearchService) buildSearchWithinQuery(originalReq *models.SearchRequest
 			if originalReq.MatchType == "full" {
 				originalConditions = append(originalConditions, fmt.Sprintf("%s = '%s'", field, value))
 			} else {
-				originalConditions = append(originalConditions, fmt.Sprintf("lower(%s) LIKE lower('%%%s%%')", field, value))
+				originalConditions = append(originalConditions, fmt.Sprintf("%s ILIKE '%%%s%%'", field, value))
 			}
 		}
 	} else if len(originalReq.Fields) > 0 {
@@ -633,7 +763,7 @@ func (s *SearchService) buildSearchWithinQuery(originalReq *models.SearchRequest
 			if originalReq.MatchType == "full" {
 				originalConditions = append(originalConditions, fmt.Sprintf("%s = '%s'", field, originalReq.Query))
 			} else {
-				originalConditions = append(originalConditions, fmt.Sprintf("lower(%s) LIKE lower('%%%s%%')", field, originalReq.Query))
+				originalConditions = append(originalConditions, fmt.Sprintf("%s ILIKE '%%%s%%'", field, originalReq.Query))
 			}
 		}
 	}
@@ -652,7 +782,7 @@ func (s *SearchService) buildSearchWithinQuery(originalReq *models.SearchRequest
 		if withinReq.MatchType == "full" {
 			newConditions = append(newConditions, fmt.Sprintf("%s = '%s'", field, withinReq.Query))
 		} else {
-			newConditions = append(newConditions, fmt.Sprintf("lower(%s) LIKE lower('%%%s%%')", field, withinReq.Query))
+			newConditions = append(newConditions, fmt.Sprintf("%s ILIKE '%%%s%%'", field, withinReq.Query))
 		}
 	}
 
@@ -734,32 +864,53 @@ func (s *SearchService) shouldUseEnhancedMobileSearch(req *models.SearchRequest)
 		return true
 	}
 
-	// Check if the main query looks like a mobile number
-	if s.isMobileNumber(req.Query) {
-		return true
-	}
-
-	// Check field-specific queries for mobile fields
+	// If field-specific queries are present, enhanced search should only trigger
+	// when there is exactly one non-empty field and it is a mobile-like value in
+	// either "mobile" or "alt".
 	if len(req.FieldQueries) > 0 {
+		nonEmptyCount := 0
+		mobileOnly := true
+		mobileLike := false
 		for field, value := range req.FieldQueries {
-			if (field == "mobile" || field == "alt") && s.isMobileNumber(value) {
-				return true
+			val := strings.TrimSpace(value)
+			if val == "" {
+				continue
+			}
+			nonEmptyCount++
+			if field == "mobile" || field == "alt" {
+				if s.isMobileNumber(val) {
+					mobileLike = true
+				}
+			} else {
+				mobileOnly = false
 			}
 		}
+		if nonEmptyCount == 1 && mobileOnly && mobileLike {
+			return true
+		}
+		// Multiple fields or non-mobile fields involved → do not use enhanced
+		return false
 	}
 
-	// Check if fields include mobile/alt and query looks like a number
+	// If legacy Fields are used, only trigger when all fields are in {mobile, alt}
+	// AND the main query looks like a mobile number
 	if len(req.Fields) > 0 {
-		hasMobileField := false
-		for _, field := range req.Fields {
-			if field == "mobile" || field == "alt" {
-				hasMobileField = true
+		onlyMobileFields := true
+		for _, f := range req.Fields {
+			if f != "mobile" && f != "alt" {
+				onlyMobileFields = false
 				break
 			}
 		}
-		if hasMobileField && s.isMobileNumber(req.Query) {
+		if onlyMobileFields && s.isMobileNumber(req.Query) {
 			return true
 		}
+		return false
+	}
+
+	// If no explicit fields provided, allow enhanced when the whole query is a mobile number
+	if s.isMobileNumber(req.Query) {
+		return true
 	}
 
 	return false
@@ -813,7 +964,7 @@ func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.Enhan
 	directMatchQuery := `
 		SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at
 		FROM finone_search.people
-		WHERE mobile = ? OR mobile LIKE ? OR mobile LIKE ? OR alt = ? OR alt LIKE ? OR alt LIKE ?
+		WHERE mobile = ? OR mobile ILIKE ? OR mobile ILIKE ? OR alt = ? OR alt ILIKE ? OR alt ILIKE ?
 		ORDER BY mobile, name
 	`
 
@@ -870,7 +1021,7 @@ func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.Enhan
 			WHERE master_id IN (%s)
 			AND id NOT IN (
 				SELECT id FROM finone_search.people
-				WHERE mobile = ? OR mobile LIKE ? OR mobile LIKE ? OR alt = ? OR alt LIKE ? OR alt LIKE ?
+				WHERE mobile = ? OR mobile ILIKE ? OR mobile ILIKE ? OR alt = ? OR alt ILIKE ? OR alt ILIKE ?
 			)
 			ORDER BY master_id, mobile, name
 		`, strings.Join(placeholders, ","))
@@ -944,19 +1095,23 @@ func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.Enhan
 		Offset:         req.Offset,
 		EnhancedMobile: true,
 	}
-	s.logSearch(userID, searchReq, totalCount, executionTime, searchID)
+	fingerprint := s.computeSearchFingerprint(searchReq)
+	isDup, _ := s.isDuplicateSearchToday(userID, fingerprint)
+	s.logSearch(userID, searchReq, totalCount, executionTime, searchID, fingerprint)
 
 	// Log performance metrics
 	queryText := fmt.Sprintf("Enhanced mobile search: %s (found %d master_ids)", cleanedMobile, len(uniqueMasterIDs))
 	s.logSearchPerformance(searchID, userID.String(), queryText, executionTime, totalCount)
 
-	// Only increment user's daily search count if we found results
-	if totalCount > 0 {
+	// Only increment user's daily search count if we found results and not duplicate
+	if totalCount > 0 && !isDup {
 		if err := authService.IncrementSearchCount(userID); err != nil {
 			utils.LogError("Failed to increment search count", err)
 		}
-	} else {
+	} else if totalCount == 0 {
 		utils.LogInfo("No results found in enhanced mobile search, search count not incremented")
+	} else if isDup {
+		utils.LogInfo("Duplicate enhanced-mobile search detected for today, search count not incremented")
 	}
 
 	utils.LogInfo(fmt.Sprintf("Enhanced mobile search completed in %dms. Direct: %d, Master ID: %d, Total: %d",
