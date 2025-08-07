@@ -87,7 +87,7 @@ func setupRouter() *gin.Engine {
 		utils.LogInfo(fmt.Sprintf("Response: %d for %s %s", c.Writer.Status(), c.Request.Method, c.Request.URL.Path))
 	})
 
-	router.Use(middleware.CORSMiddleware()) // Disabled - nginx handles CORS
+	// router.Use(middleware.CORSMiddleware()) // Disabled - nginx handles CORS
 	router.Use(middleware.RateLimitMiddleware())
 
 	// Initialize handlers
