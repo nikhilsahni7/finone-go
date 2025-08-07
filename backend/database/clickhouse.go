@@ -25,8 +25,12 @@ func InitClickHouse() error {
 			Password: config.AppConfig.Database.ClickHouse.Password,
 		},
 		Settings: clickhouse.Settings{
-			"max_execution_time": 60,
+			"max_execution_time":          60,
+			"allow_experimental_analyzer": 1,
+			"optimize_move_to_prewhere":   1,
+			"use_uncompressed_cache":      0,
 		},
+		Compression: &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
 		DialTimeout: time.Duration(10) * time.Second,
 	})
 
@@ -67,6 +71,8 @@ func RunClickHouseMigrations() error {
 			alt String,
 			circle String,
 			email String,
+			-- Materialized pincode extracted from address for fast filtering (first 6-digit token)
+			pincode String MATERIALIZED arrayFirst(x -> length(x) = 6, extractAll(address, '\\d+')),
 			created_at DateTime DEFAULT now(),
 			updated_at DateTime DEFAULT now(),
 			-- Secondary indexes for accelerating LIKE/ILIKE searches
@@ -77,7 +83,9 @@ func RunClickHouseMigrations() error {
 			INDEX idx_circle_token circle TYPE tokenbf_v1(1024) GRANULARITY 4,
 			INDEX idx_mobile_token mobile TYPE tokenbf_v1(1024) GRANULARITY 4,
 			INDEX idx_alt_token alt TYPE tokenbf_v1(1024) GRANULARITY 4,
-			INDEX idx_master_id_token master_id TYPE tokenbf_v1(1024) GRANULARITY 4
+			INDEX idx_master_id_token master_id TYPE tokenbf_v1(1024) GRANULARITY 4,
+			-- Bloom filter index for exact pincode matches
+			INDEX idx_pincode_bf pincode TYPE bloom_filter GRANULARITY 4
 		)
 		ENGINE = MergeTree()
 		ORDER BY (mobile, name, master_id)
@@ -96,6 +104,12 @@ func RunClickHouseMigrations() error {
 		)
 		ENGINE = MergeTree()
 		ORDER BY timestamp`,
+
+		// Ensure schema upgrades on existing deployments (idempotent)
+		`ALTER TABLE finone_search.people ADD COLUMN IF NOT EXISTS pincode String MATERIALIZED arrayFirst(x -> length(x) = 6, extractAll(address, '\\d+'))`,
+		`ALTER TABLE finone_search.people ADD INDEX IF NOT EXISTS idx_pincode_bf pincode TYPE bloom_filter GRANULARITY 4`,
+		`ALTER TABLE finone_search.people MATERIALIZE COLUMN pincode`,
+		`ALTER TABLE finone_search.people MATERIALIZE INDEX idx_pincode_bf`,
 	}
 
 	for i, query := range migrationQueries {

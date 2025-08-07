@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS people
     alt String,                                    -- Alternative contact
     circle String,                                 -- Circle/Region
     email String,                                  -- Email address
+    -- Materialized pincode extracted from address (first 6-digit token)
+    pincode String MATERIALIZED arrayFirst(x -> length(x) = 6, extractAll(address, '\\d+')),
     created_at DateTime DEFAULT now(),             -- Record creation time
     updated_at DateTime DEFAULT now(),             -- Last update time
     -- Secondary indexes for accelerating LIKE/ILIKE searches
@@ -28,7 +30,9 @@ CREATE TABLE IF NOT EXISTS people
     INDEX idx_circle_token circle TYPE tokenbf_v1(1024) GRANULARITY 4,
     INDEX idx_mobile_token mobile TYPE tokenbf_v1(1024) GRANULARITY 4,
     INDEX idx_alt_token alt TYPE tokenbf_v1(1024) GRANULARITY 4,
-    INDEX idx_master_id_token master_id TYPE tokenbf_v1(1024) GRANULARITY 4
+    INDEX idx_master_id_token master_id TYPE tokenbf_v1(1024) GRANULARITY 4,
+    -- Bloom filter index for exact pincode matches
+    INDEX idx_pincode_bf pincode TYPE bloom_filter GRANULARITY 4
 )
 ENGINE = MergeTree()
 ORDER BY (mobile, name, master_id)
@@ -77,6 +81,12 @@ CREATE TABLE IF NOT EXISTS search_performance
 )
 ENGINE = MergeTree()
 ORDER BY timestamp;
+
+-- Idempotent schema upgrades for existing deployments
+ALTER TABLE people ADD COLUMN IF NOT EXISTS pincode String MATERIALIZED arrayFirst(x -> length(x) = 6, extractAll(address, '\\d+'));
+ALTER TABLE people ADD INDEX IF NOT EXISTS idx_pincode_bf pincode TYPE bloom_filter GRANULARITY 4;
+ALTER TABLE people MATERIALIZE COLUMN pincode;
+ALTER TABLE people MATERIALIZE INDEX idx_pincode_bf;
 
 -- Sample data insertion (remove after testing)
 -- This will be replaced by your CSV import

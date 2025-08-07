@@ -5,6 +5,8 @@ import (
 )
 
 // Person represents a person record in ClickHouse
+// Note: A materialized `pincode` column exists in the table for performance,
+// but is intentionally not part of this struct to keep API responses stable.
 type Person struct {
 	ID        string    `json:"id" ch:"id"`
 	MasterID  string    `json:"master_id" ch:"master_id"`

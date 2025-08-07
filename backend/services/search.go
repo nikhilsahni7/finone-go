@@ -84,28 +84,28 @@ func (s *SearchService) isDuplicateSearchToday(userID uuid.UUID, fingerprint str
 
 // helper: build condition for a field/value considering virtual fields like pincode
 func (s *SearchService) buildFieldCondition(field string, value string, matchType string, args *[]interface{}) (string, bool) {
-	// Virtual field: pincode is extracted from address; prefer whole-token/6-digit match
+	// Virtual field: pincode is extracted from address; prefer exact 6-digit equality on materialized column
 	if field == "pincode" {
 		clean := strings.TrimSpace(value)
 		if clean == "" {
 			return "", false
 		}
-		// Ensure only digits
+		// Only digits
 		digits := regexp.MustCompile(`\D`).ReplaceAllString(clean, "")
-		if len(digits) < 4 {
-			return "", false
+		if len(digits) == 6 {
+			*args = append(*args, digits)
+			return "pincode = ?", true
 		}
-		// Fast path: substring with ILIKE utilizes ngram index; also add a stronger regex filter
-		// We combine both to balance speed and precision
-		// 1) address ILIKE %digits%
-		c1 := "address ILIKE ?"
-		*args = append(*args, "%"+digits+"%")
-		// 2) match 6+ digit boundaries in address using ClickHouse match (re2)
-		// Use match(address, '(^|[^0-9])digits([^0-9]|$)') to reduce false positives
-		pattern := fmt.Sprintf("(^|[^0-9])%s([^0-9]|$)", regexp.QuoteMeta(digits))
-		c2 := "match(address, ?)"
-		*args = append(*args, pattern)
-		return fmt.Sprintf("(%s AND %s)", c1, c2), true
+		if len(digits) >= 4 {
+			// Partial pincode: fallback to address filtering to keep current behavior
+			c1 := "address ILIKE ?"
+			*args = append(*args, "%"+digits+"%")
+			pattern := fmt.Sprintf("(^|[^0-9])%s([^0-9]|$)", regexp.QuoteMeta(digits))
+			c2 := "match(address, ?)"
+			*args = append(*args, pattern)
+			return fmt.Sprintf("(%s AND %s)", c1, c2), true
+		}
+		return "", false
 	}
 
 	// Normal fields
@@ -318,6 +318,9 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 		query += fmt.Sprintf(" OFFSET %d", req.Offset)
 	}
 
+	// Encourage better planning
+	query += " SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1"
+
 	// Debug logging
 	utils.LogInfo(fmt.Sprintf("Generated SQL query - Logic: %s, Operator: %s, Conditions: %d",
 		req.Logic, logicOperator, len(conditions)))
@@ -408,7 +411,7 @@ func (s *SearchService) getTotalCount(req *models.SearchRequest, ctx context.Con
 	}
 
 	whereClause := "(" + strings.Join(conditions, " "+logicOperator+" ") + ")"
-	countQuery := baseQuery + whereClause
+	countQuery := baseQuery + whereClause + " SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1"
 
 	var totalCount uint64
 	err := database.ClickHouseDB.QueryRow(ctx, countQuery, args...).Scan(&totalCount)
@@ -521,7 +524,7 @@ func (s *SearchService) getSearchWithinTotalCount(originalReq *models.SearchRequ
 	// Combine with AND (search within means both conditions must be true)
 	combinedWhere := originalWhere + " AND " + newWhere
 
-	countQuery := baseCountQuery + combinedWhere
+	countQuery := baseCountQuery + combinedWhere + " SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1"
 
 	var totalCount uint64
 	err := database.ClickHouseDB.QueryRow(ctx, countQuery, args...).Scan(&totalCount)
@@ -813,6 +816,8 @@ func (s *SearchService) buildSearchWithinQuery(originalReq *models.SearchRequest
 		query += fmt.Sprintf(" OFFSET %d", withinReq.Offset)
 	}
 
+	query += " SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1"
+
 	return query
 }
 
@@ -966,6 +971,7 @@ func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.Enhan
 		FROM finone_search.people
 		WHERE mobile = ? OR mobile ILIKE ? OR mobile ILIKE ? OR alt = ? OR alt ILIKE ? OR alt ILIKE ?
 		ORDER BY mobile, name
+		SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1
 	`
 
 	// Prepare variations of the mobile number for matching
@@ -1024,6 +1030,7 @@ func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.Enhan
 				WHERE mobile = ? OR mobile ILIKE ? OR mobile ILIKE ? OR alt = ? OR alt ILIKE ? OR alt ILIKE ?
 			)
 			ORDER BY master_id, mobile, name
+			SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1
 		`, strings.Join(placeholders, ","))
 
 		// Combine master_id args with mobile variations for exclusion
