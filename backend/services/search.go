@@ -171,7 +171,7 @@ func (s *SearchService) Search(userID uuid.UUID, req *models.SearchRequest) (*mo
 
 	// Execute the search
 	var results []models.Person
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	err = database.ClickHouseDB.Select(ctx, &results, query, args...)
@@ -256,8 +256,20 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 				condition = fmt.Sprintf("%s = ?", field)
 				args = append(args, val)
 			} else {
-				condition = fmt.Sprintf("%s ILIKE ?", field)
-				args = append(args, "%"+val+"%")
+				// Optimize numeric mobile/alt lookups when full-length number provided
+				if field == "mobile" || field == "alt" {
+					digits := regexp.MustCompile(`\D`).ReplaceAllString(val, "")
+					if len(digits) >= 10 && len(digits) <= 12 {
+						condition = fmt.Sprintf("%s = ?", field)
+						args = append(args, digits)
+					} else {
+						condition = fmt.Sprintf("%s ILIKE ?", field)
+						args = append(args, "%"+val+"%")
+					}
+				} else {
+					condition = fmt.Sprintf("%s ILIKE ?", field)
+					args = append(args, "%"+val+"%")
+				}
 			}
 			conditions = append(conditions, condition)
 		}
@@ -273,8 +285,19 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 				condition = fmt.Sprintf("%s = ?", field)
 				args = append(args, req.Query)
 			} else {
-				condition = fmt.Sprintf("%s ILIKE ?", field)
-				args = append(args, "%"+req.Query+"%")
+				if field == "mobile" || field == "alt" {
+					digits := regexp.MustCompile(`\D`).ReplaceAllString(req.Query, "")
+					if len(digits) >= 10 && len(digits) <= 12 {
+						condition = fmt.Sprintf("%s = ?", field)
+						args = append(args, digits)
+					} else {
+						condition = fmt.Sprintf("%s ILIKE ?", field)
+						args = append(args, "%"+req.Query+"%")
+					}
+				} else {
+					condition = fmt.Sprintf("%s ILIKE ?", field)
+					args = append(args, "%"+req.Query+"%")
+				}
 			}
 			conditions = append(conditions, condition)
 		}
@@ -362,8 +385,19 @@ func (s *SearchService) getTotalCount(req *models.SearchRequest, ctx context.Con
 				condition = fmt.Sprintf("%s = ?", field)
 				args = append(args, val)
 			} else {
-				condition = fmt.Sprintf("%s ILIKE ?", field)
-				args = append(args, "%"+val+"%")
+				if field == "mobile" || field == "alt" {
+					digits := regexp.MustCompile(`\D`).ReplaceAllString(val, "")
+					if len(digits) >= 10 && len(digits) <= 12 {
+						condition = fmt.Sprintf("%s = ?", field)
+						args = append(args, digits)
+					} else {
+						condition = fmt.Sprintf("%s ILIKE ?", field)
+						args = append(args, "%"+val+"%")
+					}
+				} else {
+					condition = fmt.Sprintf("%s ILIKE ?", field)
+					args = append(args, "%"+val+"%")
+				}
 			}
 			conditions = append(conditions, condition)
 		}
@@ -379,8 +413,19 @@ func (s *SearchService) getTotalCount(req *models.SearchRequest, ctx context.Con
 				condition = fmt.Sprintf("%s = ?", field)
 				args = append(args, req.Query)
 			} else {
-				condition = fmt.Sprintf("%s ILIKE ?", field)
-				args = append(args, "%"+req.Query+"%")
+				if field == "mobile" || field == "alt" {
+					digits := regexp.MustCompile(`\D`).ReplaceAllString(req.Query, "")
+					if len(digits) >= 10 && len(digits) <= 12 {
+						condition = fmt.Sprintf("%s = ?", field)
+						args = append(args, digits)
+					} else {
+						condition = fmt.Sprintf("%s ILIKE ?", field)
+						args = append(args, "%"+req.Query+"%")
+					}
+				} else {
+					condition = fmt.Sprintf("%s ILIKE ?", field)
+					args = append(args, "%"+req.Query+"%")
+				}
 			}
 			conditions = append(conditions, condition)
 		}
@@ -684,7 +729,7 @@ func (s *SearchService) SearchWithin(userID uuid.UUID, req *models.SearchWithinR
 
 	// Execute the refined search
 	var results []models.Person
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	err = database.ClickHouseDB.Select(ctx, &results, combinedQuery)
