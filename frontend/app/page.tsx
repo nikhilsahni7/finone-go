@@ -514,7 +514,7 @@ export default function Home() {
             <div>
               <div className="flex items-center space-x-3 mb-6">
                 <Image
-                  src="/logo-final.png"
+                  src="/logo-finone (1).png"
                   alt="FinnOne Logo"
                   width={140}
                   height={50}
