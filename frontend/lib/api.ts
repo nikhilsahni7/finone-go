@@ -198,6 +198,26 @@ export async function exportSearchResults(
   });
 }
 
+export async function downloadFileAuth(downloadPath: string): Promise<Blob> {
+  const token =
+    typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
+  const base = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8082";
+  const response = await fetch(`${base}${downloadPath}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+  });
+
+  if (!response.ok) {
+    let msg = "Download failed";
+    try {
+      const data = await response.json();
+      msg = data?.error || msg;
+    } catch {}
+    throw new ApiError(response.status, msg);
+  }
+
+  return await response.blob();
+}
+
 export function isAuthenticated(): boolean {
   if (typeof window === "undefined") return false;
   const token = localStorage.getItem("access_token");
