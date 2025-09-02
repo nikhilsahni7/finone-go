@@ -202,6 +202,9 @@ func setupRouter() *gin.Engine {
 
 	// Serve static files (for file downloads)
 	router.Static("/downloads", "./downloads")
+	// Also serve under common API prefixes (useful behind reverse proxies)
+	router.Static("/api/downloads", "./downloads")
+	router.Static("/api/v1/downloads", "./downloads")
 
 	// Debug: catch-all route to see what paths are being requested
 	router.NoRoute(func(c *gin.Context) {
