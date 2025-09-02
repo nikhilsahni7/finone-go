@@ -442,7 +442,7 @@ func (h *SearchHandler) ExportSearchResults(c *gin.Context) {
 	_ = authService.IncrementExportCount(userID)
 
 	// Return response with download URL
-	downloadURL := "/downloads/" + req.FileName
+	downloadURL := "/api/v1/downloads/" + req.FileName
 	resp := models.ExportResponse{
 		DownloadURL: downloadURL,
 		FileName:    req.FileName,
