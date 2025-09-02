@@ -1181,3 +1181,15 @@ func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.Enhan
 		MasterIDs:            uniqueMasterIDs,
 	}, nil
 }
+
+func (s *SearchService) BuildSearchSQL(req *models.SearchRequest, limit int, offset int) (string, []interface{}) {
+	// Create a shallow copy so we don't mutate the original request
+	r := *req
+	if limit > 0 {
+		r.Limit = limit
+	}
+	if offset >= 0 {
+		r.Offset = offset
+	}
+	return s.buildSearchQuery(&r)
+}

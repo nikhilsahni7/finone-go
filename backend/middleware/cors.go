@@ -28,8 +28,8 @@ func CORSMiddleware() gin.HandlerFunc {
 	if frontendURL == "http://localhost:3000" {
 		// If only default is set, add production domains
 		allowedOrigins = append(allowedOrigins,
-			
-		"https://finoneweb.nikhilsahni.xyz",
+
+			"https://finoneweb.nikhilsahni.xyz",
 			"https://finone.nikhilsahni.xyz",
 		)
 	}

@@ -81,14 +81,40 @@ func LoadConfig() error {
 }
 
 func loadFromYAML(config *Config) error {
-	file, err := os.Open("config/config.yaml")
-	if err != nil {
-		return err
+	// Allow overriding the config file path via env var
+	candidatePaths := []string{}
+	if envPath := os.Getenv("CONFIG_PATH"); envPath != "" {
+		candidatePaths = append(candidatePaths, envPath)
 	}
-	defer file.Close()
 
-	decoder := yaml.NewDecoder(file)
-	return decoder.Decode(config)
+	// Try common relative locations based on typical run directories
+	candidatePaths = append(candidatePaths,
+		"config/config.yaml",       // repo root or backend/
+		"../config/config.yaml",    // e.g., running from backend/cmd
+		"../../config/config.yaml", // deeper nested run directories
+	)
+
+	var lastErr error
+	for _, p := range candidatePaths {
+		file, err := os.Open(p)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		defer file.Close()
+
+		decoder := yaml.NewDecoder(file)
+		if err := decoder.Decode(config); err != nil {
+			lastErr = err
+			continue
+		}
+		return nil
+	}
+
+	if lastErr != nil {
+		return lastErr
+	}
+	return fmt.Errorf("config file not found in candidate paths")
 }
 
 func loadFromEnv(config *Config) {

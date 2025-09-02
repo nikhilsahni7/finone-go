@@ -1,13 +1,19 @@
 package handlers
 
 import (
+	"context"
+	"encoding/csv"
+	"encoding/json"
+	"finone-search-system/database"
 	"finone-search-system/models"
 	"finone-search-system/services"
 	"finone-search-system/utils"
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -233,16 +239,218 @@ func (h *SearchHandler) ExportSearchResults(c *gin.Context) {
 		return
 	}
 
-	// TODO: Implement export functionality
-	// For now, return a placeholder response
-	response := models.ExportResponse{
-		DownloadURL: "/api/downloads/export_" + userID.String() + ".csv",
-		FileName:    "search_results.csv",
-		FileSize:    0,
-		RowCount:    0,
+	// Enforce daily export limit
+	authService := services.NewAuthService()
+	canExport, err := authService.CheckExportLimit(userID)
+	if err != nil {
+		utils.LogError("Failed to check export limit", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to validate export quota"})
+		return
+	}
+	if !canExport {
+		c.JSON(http.StatusTooManyRequests, gin.H{"error": "Daily export limit reached"})
+		return
 	}
 
-	c.JSON(http.StatusOK, response)
+	// Ensure downloads directory exists
+	downloadDir := "./downloads"
+	if err := os.MkdirAll(downloadDir, 0755); err != nil {
+		utils.LogError("Failed to create downloads directory", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to prepare export directory"})
+		return
+	}
+
+	// Build filename
+	if req.FileName == "" {
+		req.FileName = fmt.Sprintf("search_export_%s_%d.csv", userID.String(), time.Now().Unix())
+	}
+	filePath := filepath.Join(downloadDir, req.FileName)
+
+	file, err := os.Create(filePath)
+	if err != nil {
+		utils.LogError("Failed to create export file", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create export file"})
+		return
+	}
+	defer file.Close()
+
+	csvWriter := csv.NewWriter(file)
+	defer csvWriter.Flush()
+
+	// CSV header (exclude master_id, add meta columns)
+	header := []string{"query_index", "query_time", "query_text", "id", "mobile", "name", "fname", "address", "alt", "circle", "email"}
+	if err := csvWriter.Write(header); err != nil {
+		utils.LogError("Failed to write CSV header", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to write CSV"})
+		return
+	}
+
+	rowsWritten := 0
+
+	// Helper to dump up to 25 rows for a given SearchRequest and metadata
+	dumpQueryResults := func(idx int, when time.Time, sr *models.SearchRequest) error {
+		// Use limit 25 regardless of original
+		query, args := h.searchService.BuildSearchSQL(sr, 25, 0)
+
+		// Execute in ClickHouse directly
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+		var results []models.Person
+		if err := database.ClickHouseDB.Select(ctx, &results, query, args...); err != nil {
+			return fmt.Errorf("failed query for export: %w", err)
+		}
+
+		// Write rows
+		for _, p := range results {
+			row := []string{
+				fmt.Sprintf("%d", idx),
+				when.Format(time.RFC3339),
+				sr.Query,
+				p.ID,
+				p.Mobile,
+				p.Name,
+				p.FName,
+				p.Address,
+				p.Alt,
+				p.Circle,
+				p.Email,
+			}
+			if err := csvWriter.Write(row); err != nil {
+				return fmt.Errorf("failed to write CSV row: %w", err)
+			}
+			rowsWritten++
+		}
+		return nil
+	}
+
+	// Export strategy
+	if req.Scope == "today" {
+		// Retrieve today's searches for this user (ordered by time)
+		istNow := time.Now().Add(5*time.Hour + 30*time.Minute)
+		today := istNow.Format("2006-01-02")
+		var searches []models.Search
+		q := `SELECT id, user_id, search_query, search_time, result_count, execution_time_ms FROM searches WHERE user_id = $1 AND search_time::date = $2 ORDER BY search_time ASC`
+		if err := database.PostgresDB.Select(&searches, q, userID, today); err != nil {
+			utils.LogError("Failed to load today's searches", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to load searches"})
+			return
+		}
+
+		// For each search, parse request and export up to 25
+		for i, srec := range searches {
+			var sr models.SearchRequest
+			// search_query is JSONB (interface{}). Normalize to bytes then unmarshal
+			var raw []byte
+			switch v := srec.SearchQuery.(type) {
+			case []byte:
+				raw = v
+			case string:
+				raw = []byte(v)
+			default:
+				raw, _ = json.Marshal(srec.SearchQuery)
+			}
+			if err := json.Unmarshal(raw, &sr); err != nil {
+				utils.LogError("Failed to parse stored search query", err)
+				// skip bad record
+				continue
+			}
+
+			// Default defensive values
+			if sr.MatchType == "" {
+				sr.MatchType = "partial"
+			}
+			if sr.Logic == "" {
+				sr.Logic = "AND"
+			}
+
+			if err := dumpQueryResults(i+1, srec.SearchTime, &sr); err != nil {
+				utils.LogError("Failed dumping query results", err)
+			}
+		}
+	} else {
+		// Fallback: export by provided search_id or query
+		if req.SearchID == nil && req.Query == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Either search_id, query, or scope must be provided"})
+			return
+		}
+
+		if req.Query != nil {
+			if req.Query.MatchType == "" {
+				req.Query.MatchType = "partial"
+			}
+			if req.Query.Logic == "" {
+				req.Query.Logic = "AND"
+			}
+			if err := dumpQueryResults(1, time.Now(), req.Query); err != nil {
+				utils.LogError("Failed dumping direct query results", err)
+			}
+		} else if req.SearchID != nil {
+			// Load stored search by ID
+			sid, err := uuid.Parse(*req.SearchID)
+			if err != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid search_id"})
+				return
+			}
+			var srec models.Search
+			q := `SELECT id, user_id, search_query, search_time, result_count, execution_time_ms FROM searches WHERE id = $1 AND user_id = $2`
+			if err := database.PostgresDB.Get(&srec, q, sid, userID); err != nil {
+				c.JSON(http.StatusNotFound, gin.H{"error": "Search not found"})
+				return
+			}
+			var sr models.SearchRequest
+			var raw []byte
+			switch v := srec.SearchQuery.(type) {
+			case []byte:
+				raw = v
+			case string:
+				raw = []byte(v)
+			default:
+				raw, _ = json.Marshal(srec.SearchQuery)
+			}
+			if err := json.Unmarshal(raw, &sr); err != nil {
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to parse stored search"})
+				return
+			}
+			if sr.MatchType == "" {
+				sr.MatchType = "partial"
+			}
+			if sr.Logic == "" {
+				sr.Logic = "AND"
+			}
+			if err := dumpQueryResults(1, srec.SearchTime, &sr); err != nil {
+				utils.LogError("Failed dumping search-id results", err)
+			}
+		}
+	}
+
+	// Finalize CSV
+	csvWriter.Flush()
+	if err := csvWriter.Error(); err != nil {
+		utils.LogError("CSV writer error", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to finalize CSV"})
+		return
+	}
+
+	// File stats
+	fileInfo, _ := os.Stat(filePath)
+	fileSize := int64(0)
+	if fileInfo != nil {
+		fileSize = fileInfo.Size()
+	}
+
+	// Log export and increment daily export count
+	_ = authService.IncrementExportCount(userID)
+
+	// Return response with download URL
+	downloadURL := "/downloads/" + req.FileName
+	resp := models.ExportResponse{
+		DownloadURL: downloadURL,
+		FileName:    req.FileName,
+		FileSize:    fileSize,
+		RowCount:    rowsWritten,
+		ExpiresAt:   time.Now().Add(24 * time.Hour),
+	}
+	c.JSON(http.StatusOK, resp)
 }
 
 // SearchWithin handles searching within previous results

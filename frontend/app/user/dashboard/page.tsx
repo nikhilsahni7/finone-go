@@ -540,14 +540,8 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
   };
 
   const handleExport = async () => {
-    if (!searchId) {
-      setError("No search results to export");
-      return;
-    }
-
     try {
-      const exportData = await exportSearchResults(searchId, "csv");
-      // Create download link
+      const exportData = await exportSearchResults(null, "csv", "today");
       const link = document.createElement("a");
       link.href = `${
         process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:8082"

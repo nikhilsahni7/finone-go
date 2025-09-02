@@ -1,17 +1,16 @@
 package main
 
 import (
-	"fmt"
-	"log"
-	"net/http"
-	"os"
-
 	"finone-search-system/config"
 	"finone-search-system/database"
 	"finone-search-system/handlers"
 	"finone-search-system/middleware"
 	"finone-search-system/services"
 	"finone-search-system/utils"
+	"fmt"
+	"log"
+	"net/http"
+	"os"
 
 	"github.com/gin-gonic/gin"
 )

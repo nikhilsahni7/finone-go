@@ -4,7 +4,6 @@ import { twMerge } from "tailwind-merge";
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
-
 // Build a deterministic fingerprint string for a search payload
 // It mirrors backend semantics by ignoring pagination and sorting inputs
 export function buildSearchFingerprint(input: {

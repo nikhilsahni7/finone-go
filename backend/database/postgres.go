@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"finone-search-system/config"
@@ -67,13 +68,38 @@ func RunPostgresMigrations() error {
 }
 
 func runMigrationFile(filePath string) error {
-	content, err := os.ReadFile(filePath)
-	if err != nil {
-		return err
+	candidates := []string{}
+
+	// Allow an override via environment variable pointing to the migrations dir
+	if base := os.Getenv("MIGRATIONS_PATH"); base != "" {
+		candidates = append(candidates, filepath.Join(base, filepath.Base(filePath)))
 	}
 
-	_, err = PostgresDB.Exec(string(content))
-	return err
+	// Try common relative locations from various run directories
+	candidates = append(candidates,
+		filePath,
+		filepath.Join("..", filePath),
+		filepath.Join("..", "..", filePath),
+		filepath.Join("backend", filePath),
+		filepath.Join("..", "backend", filePath),
+	)
+
+	var lastErr error
+	for _, p := range candidates {
+		content, err := os.ReadFile(p)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		_, err = PostgresDB.Exec(string(content))
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	return lastErr
 }
 
 // Utility functions for database operations

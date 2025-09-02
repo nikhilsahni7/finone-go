@@ -739,3 +739,59 @@ func (s *AuthService) DeleteUser(userID uuid.UUID) error {
 
 	return nil
 }
+
+// CheckExportLimit returns whether the user can export today based on max_exports_per_day
+func (s *AuthService) CheckExportLimit(userID uuid.UUID) (bool, error) {
+	var user models.User
+	query := `SELECT max_exports_per_day FROM users WHERE id = $1 AND is_active = true`
+	err := database.PostgresDB.Get(&user, query, userID)
+	if err != nil {
+		return false, fmt.Errorf("failed to get user: %w", err)
+	}
+
+	istNow := time.Now().Add(5*time.Hour + 30*time.Minute)
+	today := istNow.Format("2006-01-02")
+
+	var exportCount int
+	countQuery := `SELECT COALESCE(export_count, 0) FROM daily_usage WHERE user_id = $1 AND date = $2`
+	err = database.PostgresDB.Get(&exportCount, countQuery, userID, today)
+	if err != nil {
+		exportCount = 0
+	}
+
+	return exportCount < user.MaxExportsPerDay, nil
+}
+
+// IncrementExportCount increments the user's daily export count
+func (s *AuthService) IncrementExportCount(userID uuid.UUID) error {
+	istNow := time.Now().Add(5*time.Hour + 30*time.Minute)
+	today := istNow.Format("2006-01-02")
+
+	query := `INSERT INTO daily_usage (user_id, date, search_count, export_count)
+	          VALUES ($1, $2, 0, 1)
+	          ON CONFLICT (user_id, date)
+	          DO UPDATE SET export_count = daily_usage.export_count + 1`
+
+	_, err := database.PostgresDB.Exec(query, userID, today)
+	return err
+}
+
+// ResetUserDailyExportCount resets the daily export count for a specific user to 0
+func (s *AuthService) ResetUserDailyExportCount(userID uuid.UUID) error {
+	istNow := time.Now().Add(5*time.Hour + 30*time.Minute) // Convert to IST
+	today := istNow.Format("2006-01-02")
+
+	// Delete the daily usage record for today - this effectively resets count to 0
+	query := `DELETE FROM daily_usage WHERE user_id = $1 AND date = $2`
+
+	result, err := database.PostgresDB.Exec(query, userID, today)
+	if err != nil {
+		return fmt.Errorf("failed to reset daily export count for user %s: %w", userID.String(), err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	utils.LogInfo(fmt.Sprintf("Reset daily export count for user %s: %d records affected for date %s",
+		userID.String(), rowsAffected, today))
+
+	return nil
+}

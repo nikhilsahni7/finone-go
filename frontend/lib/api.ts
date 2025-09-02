@@ -169,7 +169,6 @@ export async function search(query: SearchRequest): Promise<SearchResponse> {
   });
 }
 
-
 export async function enhancedMobileSearch(
   request: EnhancedMobileSearchRequest
 ): Promise<EnhancedMobileSearchResponse> {
@@ -184,15 +183,17 @@ export async function getSearchStats() {
 }
 
 export async function exportSearchResults(
-  searchId: string,
-  format: "csv" | "json" = "csv"
+  searchId: string | null,
+  format: "csv" | "json" = "csv",
+  scope?: "today"
 ) {
   return apiCall("/api/v1/search/export", {
     method: "POST",
     body: JSON.stringify({
-      search_id: searchId,
+      search_id: searchId || undefined,
       format: format,
       file_name: `search_results_${Date.now()}.${format}`,
+      scope: scope,
     }),
   });
 }

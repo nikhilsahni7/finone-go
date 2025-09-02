@@ -100,6 +100,7 @@ type ExportRequest struct {
 	Query    *SearchRequest `json:"query,omitempty"`     // Or provide new search query
 	Format   string         `json:"format" validate:"oneof=csv json"`
 	FileName string         `json:"file_name"`
+	Scope    string         `json:"scope,omitempty"` // e.g., "today" to export all of user's today's searches
 }
 
 // ExportResponse represents an export response
