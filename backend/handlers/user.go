@@ -37,7 +37,10 @@ func (h *UserHandler) Login(c *gin.Context) {
 
 	utils.LogInfo(fmt.Sprintf("Login attempt for email: %s", req.Email))
 
-	response, err := h.authService.Login(req.Email, req.Password)
+	ipAddress := c.ClientIP()
+	userAgent := c.Request.UserAgent()
+
+	response, err := h.authService.Login(req.Email, req.Password, ipAddress, userAgent)
 	if err != nil {
 		utils.LogError("Login failed", err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": err.Error()})

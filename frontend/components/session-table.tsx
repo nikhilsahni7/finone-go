@@ -84,6 +84,11 @@ export default function SessionTable({
                     <div className="text-sm text-gray-500">
                       {session.user_email}
                     </div>
+                    {session.ip_address && (
+                      <div className="text-xs text-gray-400">
+                        IP: {session.ip_address}
+                      </div>
+                    )}
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">

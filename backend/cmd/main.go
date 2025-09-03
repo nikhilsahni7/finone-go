@@ -75,6 +75,13 @@ func setupRouter() *gin.Engine {
 
 	router := gin.New()
 
+	// Trust common proxy headers if running behind a proxy
+	// This makes c.ClientIP() respect X-Forwarded-For / X-Real-IP
+	if err := router.SetTrustedProxies([]string{"0.0.0.0/0", "::/0"}); err != nil {
+		// If this fails (e.g., older kernels), fall back to empty list
+		_ = router.SetTrustedProxies(nil)
+	}
+
 	// Global middleware
 	router.Use(utils.GinLogger())
 	router.Use(utils.GinRecovery())

@@ -22,7 +22,7 @@ func NewAuthService() *AuthService {
 }
 
 // Login authenticates a user and returns a JWT token with session management
-func (s *AuthService) Login(email, password string) (*models.LoginResponse, error) {
+func (s *AuthService) Login(email, password string, ipAddress, userAgent string) (*models.LoginResponse, error) {
 	var user models.User
 	query := `SELECT * FROM users WHERE email = $1 AND is_active = true`
 
@@ -51,14 +51,14 @@ func (s *AuthService) Login(email, password string) (*models.LoginResponse, erro
 	}
 
 	// Create session record
-	sessionID, err := s.createSession(user.ID, token, expiresAt, "127.0.0.1", "")
+	sessionID, err := s.createSession(user.ID, token, expiresAt, ipAddress, userAgent)
 	if err != nil {
 		utils.LogError("Failed to create session", err)
 		return nil, fmt.Errorf("failed to create session")
 	}
 
 	// Log the login
-	s.logLogin(user.ID, "127.0.0.1", "")
+	s.logLogin(user.ID, ipAddress, userAgent)
 
 	// Remove sensitive data
 	user.PasswordHash = ""
@@ -435,10 +435,11 @@ func (s *AuthService) hashToken(token string) string {
 // GetUserSessions returns active sessions for a user (admin function)
 func (s *AuthService) GetUserSessions(userID uuid.UUID) ([]models.UserSession, error) {
 	var sessions []models.UserSession
-	query := `SELECT id, user_id, created_at, expires_at, is_active, ip_address, user_agent, logged_out_at
-			  FROM user_sessions
-			  WHERE user_id = $1
-			  ORDER BY created_at DESC`
+	query := `SELECT s.id, s.user_id, s.created_at, s.expires_at, s.is_active, s.ip_address, s.user_agent, s.logged_out_at, u.name AS user_name, u.email AS user_email
+			  FROM user_sessions s
+			  JOIN users u ON u.id = s.user_id
+			  WHERE s.user_id = $1
+			  ORDER BY s.created_at DESC`
 
 	err := database.PostgresDB.Select(&sessions, query, userID)
 	if err != nil {
@@ -451,8 +452,9 @@ func (s *AuthService) GetUserSessions(userID uuid.UUID) ([]models.UserSession, e
 // GetAllActiveSessions returns all active sessions (admin function)
 func (s *AuthService) GetAllActiveSessions() ([]models.UserSession, error) {
 	var sessions []models.UserSession
-	query := `SELECT s.id, s.user_id, s.created_at, s.expires_at, s.is_active, s.ip_address, s.user_agent, s.logged_out_at
+	query := `SELECT s.id, s.user_id, s.created_at, s.expires_at, s.is_active, s.ip_address, s.user_agent, s.logged_out_at, u.name AS user_name, u.email AS user_email
 			  FROM user_sessions s
+			  JOIN users u ON u.id = s.user_id
 			  WHERE s.is_active = true AND s.expires_at > now() AND s.logged_out_at IS NULL
 			  ORDER BY s.created_at DESC`
 

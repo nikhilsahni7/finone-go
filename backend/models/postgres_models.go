@@ -71,6 +71,9 @@ type UserSession struct {
 	IPAddress    string     `json:"ip_address" db:"ip_address"`
 	UserAgent    string     `json:"user_agent" db:"user_agent"`
 	LoggedOutAt  *time.Time `json:"logged_out_at" db:"logged_out_at"`
+	// Joined fields for admin visibility
+	UserName  string `json:"user_name" db:"user_name"`
+	UserEmail string `json:"user_email" db:"user_email"`
 }
 
 // LoginRequest represents the login request payload

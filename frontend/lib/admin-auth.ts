@@ -25,6 +25,8 @@ export interface SessionInfo {
   expires_at: string;
   last_activity: string;
   is_active: boolean;
+  ip_address?: string;
+  user_agent?: string;
 }
 
 export interface SessionsResponse {
