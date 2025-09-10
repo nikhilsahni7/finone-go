@@ -87,10 +87,10 @@ func tryNativeTLSConnection() (driver.Conn, error) {
 
 // Strategy 2: HTTPS connection (often more reliable through firewalls)
 func tryHTTPSConnection() (driver.Conn, error) {
-	log.Printf("Attempting HTTPS connection to %s:8443", config.AppConfig.Database.ClickHouse.Host)
+	log.Printf("Attempting HTTPS connection to %s:%d", config.AppConfig.Database.ClickHouse.Host, config.AppConfig.Database.ClickHouse.Port)
 
 	options := &clickhouse.Options{
-		Addr: []string{fmt.Sprintf("https://%s:8443", config.AppConfig.Database.ClickHouse.Host)},
+		Addr: []string{fmt.Sprintf("%s:%d", config.AppConfig.Database.ClickHouse.Host, config.AppConfig.Database.ClickHouse.Port)},
 		Auth: clickhouse.Auth{
 			Database: config.AppConfig.Database.ClickHouse.Database,
 			Username: config.AppConfig.Database.ClickHouse.User,
@@ -107,6 +107,7 @@ func tryHTTPSConnection() (driver.Conn, error) {
 		ConnMaxLifetime: time.Duration(30) * time.Minute,
 		MaxIdleConns:    5,
 		MaxOpenConns:    10,
+		Protocol:        clickhouse.HTTP,
 	}
 
 	tlsCfg := &tls.Config{
