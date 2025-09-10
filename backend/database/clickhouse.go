@@ -38,7 +38,10 @@ func InitClickHouse() error {
 	// Configure protocol/TLS for ClickHouse Cloud
 	if config.AppConfig.Database.ClickHouse.Secure || config.AppConfig.Database.ClickHouse.UseHTTP {
 		// TLS enabled for both native TLS:9440 or HTTPS:8443
-		tlsCfg := &tls.Config{InsecureSkipVerify: config.AppConfig.Database.ClickHouse.SkipVerify}
+		tlsCfg := &tls.Config{
+			ServerName:         config.AppConfig.Database.ClickHouse.Host,
+			InsecureSkipVerify: config.AppConfig.Database.ClickHouse.SkipVerify,
+		}
 		options.TLS = tlsCfg
 	}
 	if config.AppConfig.Database.ClickHouse.UseHTTP {
