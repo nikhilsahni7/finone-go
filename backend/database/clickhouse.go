@@ -3,11 +3,10 @@ package database
 import (
 	"context"
 	"crypto/tls"
+	"finone-search-system/config"
 	"fmt"
 	"log"
 	"time"
-
-	"finone-search-system/config"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -48,19 +47,50 @@ func InitClickHouse() error {
 		options.Protocol = clickhouse.HTTP
 	}
 
+	// Attempt primary connection
 	conn, err := clickhouse.Open(options)
-	if err != nil {
-		return fmt.Errorf("failed to connect to ClickHouse: %w", err)
+	if err == nil {
+		if pingErr := conn.Ping(context.Background()); pingErr == nil {
+			ClickHouseDB = conn
+			log.Println("Successfully connected to ClickHouse (primary settings)")
+			return nil
+		} else {
+			err = fmt.Errorf("failed to ping ClickHouse: %w", pingErr)
+		}
+	}
+	log.Printf("Primary ClickHouse connection failed: %v", err)
+
+	// Plaintext fallback (hack): try native port 9000 without TLS when not using HTTP
+	if !config.AppConfig.Database.ClickHouse.UseHTTP {
+		log.Println("Attempting plaintext fallback to ClickHouse on port 9000 (no TLS)...")
+		fallback := &clickhouse.Options{
+			Addr: []string{fmt.Sprintf("%s:%d",
+				config.AppConfig.Database.ClickHouse.Host,
+				9000)},
+			Auth: clickhouse.Auth{
+				Database: config.AppConfig.Database.ClickHouse.Database,
+				Username: config.AppConfig.Database.ClickHouse.User,
+				Password: config.AppConfig.Database.ClickHouse.Password,
+			},
+			Settings:    options.Settings,
+			Compression: options.Compression,
+			DialTimeout: options.DialTimeout,
+			// TLS intentionally nil for plaintext
+		}
+		fbConn, fbErr := clickhouse.Open(fallback)
+		if fbErr == nil {
+			if pingErr := fbConn.Ping(context.Background()); pingErr == nil {
+				ClickHouseDB = fbConn
+				log.Println("Successfully connected to ClickHouse using plaintext fallback on port 9000")
+				return nil
+			} else {
+				fbErr = fmt.Errorf("failed to ping ClickHouse (fallback): %w", pingErr)
+			}
+		}
+		log.Printf("Plaintext fallback failed: %v", fbErr)
 	}
 
-	// Test the connection
-	if err := conn.Ping(context.Background()); err != nil {
-		return fmt.Errorf("failed to ping ClickHouse: %w", err)
-	}
-
-	ClickHouseDB = conn
-	log.Println("Successfully connected to ClickHouse")
-	return nil
+	return fmt.Errorf("failed to connect to ClickHouse")
 }
 
 func CloseClickHouse() error {
