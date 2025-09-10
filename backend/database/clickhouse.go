@@ -16,6 +16,42 @@ import (
 var ClickHouseDB driver.Conn
 
 func InitClickHouse() error {
+	// Try multiple connection strategies in order of preference
+	strategies := []func() (driver.Conn, error){
+		tryNativeTLSConnection,
+		tryHTTPSConnection,
+		tryPlaintextConnection,
+	}
+
+	var lastErr error
+	for i, strategy := range strategies {
+		log.Printf("Trying ClickHouse connection strategy %d...", i+1)
+		conn, err := strategy()
+		if err == nil {
+			if pingErr := conn.Ping(context.Background()); pingErr == nil {
+				ClickHouseDB = conn
+				log.Printf("Successfully connected to ClickHouse using strategy %d", i+1)
+				return nil
+			} else {
+				conn.Close()
+				lastErr = fmt.Errorf("strategy %d ping failed: %w", i+1, pingErr)
+				log.Printf("Strategy %d ping failed: %v", i+1, pingErr)
+			}
+		} else {
+			lastErr = fmt.Errorf("strategy %d connection failed: %w", i+1, err)
+			log.Printf("Strategy %d connection failed: %v", i+1, err)
+		}
+	}
+
+	return fmt.Errorf("all ClickHouse connection strategies failed, last error: %w", lastErr)
+}
+
+// Strategy 1: Native TLS connection (original approach)
+func tryNativeTLSConnection() (driver.Conn, error) {
+	log.Printf("Attempting native TLS connection to %s:%d",
+		config.AppConfig.Database.ClickHouse.Host,
+		config.AppConfig.Database.ClickHouse.Port)
+
 	options := &clickhouse.Options{
 		Addr: []string{fmt.Sprintf("%s:%d",
 			config.AppConfig.Database.ClickHouse.Host,
@@ -31,63 +67,86 @@ func InitClickHouse() error {
 			"optimize_move_to_prewhere":   1,
 			"use_uncompressed_cache":      0,
 		},
-		Compression: &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
-		DialTimeout: time.Duration(10) * time.Second,
+		Compression:     &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
+		DialTimeout:     time.Duration(30) * time.Second, // Increased timeout for EC2
+		ConnMaxLifetime: time.Duration(30) * time.Minute,
+		MaxIdleConns:    5,
+		MaxOpenConns:    10,
 	}
 
-	// TLS for native TLS:9440 or HTTPS:8443
-	if config.AppConfig.Database.ClickHouse.Secure || config.AppConfig.Database.ClickHouse.UseHTTP {
+	if config.AppConfig.Database.ClickHouse.Secure {
 		tlsCfg := &tls.Config{
 			ServerName:         config.AppConfig.Database.ClickHouse.Host,
 			InsecureSkipVerify: config.AppConfig.Database.ClickHouse.SkipVerify,
 		}
 		options.TLS = tlsCfg
 	}
-	// Do NOT set HTTP protocol here; native TLS is used with Open(), HTTP requires OpenDB path.
 
-	// Attempt primary connection
-	conn, err := clickhouse.Open(options)
-	if err == nil {
-		if pingErr := conn.Ping(context.Background()); pingErr == nil {
-			ClickHouseDB = conn
-			log.Println("Successfully connected to ClickHouse (primary settings)")
-			return nil
-		} else {
-			err = fmt.Errorf("failed to ping ClickHouse: %w", pingErr)
-		}
-	}
-	log.Printf("Primary ClickHouse connection failed: %v", err)
+	return clickhouse.Open(options)
+}
 
-	// Plaintext fallback (hack): try native port 9000 without TLS when not using HTTP
-	if !config.AppConfig.Database.ClickHouse.UseHTTP {
-		log.Println("Attempting plaintext fallback to ClickHouse on port 9000 (no TLS)...")
-		fallback := &clickhouse.Options{
-			Addr: []string{fmt.Sprintf("%s:%d",
-				config.AppConfig.Database.ClickHouse.Host,
-				9000)},
-			Auth: clickhouse.Auth{
-				Database: config.AppConfig.Database.ClickHouse.Database,
-				Username: config.AppConfig.Database.ClickHouse.User,
-				Password: config.AppConfig.Database.ClickHouse.Password,
-			},
-			Settings:    options.Settings,
-			Compression: options.Compression,
-			DialTimeout: options.DialTimeout,
-		}
-		fbConn, fbErr := clickhouse.Open(fallback)
-		if fbErr == nil {
-			if pingErr := fbConn.Ping(context.Background()); pingErr == nil {
-				ClickHouseDB = fbConn
-				log.Println("Successfully connected to ClickHouse using plaintext fallback on port 9000")
-				return nil
-			} else {
-				fbErr = fmt.Errorf("failed to ping ClickHouse (fallback): %w", pingErr)
-			}
-		}
-		log.Printf("Plaintext fallback failed: %v", fbErr)
+// Strategy 2: HTTPS connection (often more reliable through firewalls)
+func tryHTTPSConnection() (driver.Conn, error) {
+	log.Printf("Attempting HTTPS connection to %s:8443", config.AppConfig.Database.ClickHouse.Host)
+
+	options := &clickhouse.Options{
+		Addr: []string{fmt.Sprintf("https://%s:8443", config.AppConfig.Database.ClickHouse.Host)},
+		Auth: clickhouse.Auth{
+			Database: config.AppConfig.Database.ClickHouse.Database,
+			Username: config.AppConfig.Database.ClickHouse.User,
+			Password: config.AppConfig.Database.ClickHouse.Password,
+		},
+		Settings: clickhouse.Settings{
+			"max_execution_time":          60,
+			"allow_experimental_analyzer": 1,
+			"optimize_move_to_prewhere":   1,
+			"use_uncompressed_cache":      0,
+		},
+		Compression:     &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
+		DialTimeout:     time.Duration(30) * time.Second,
+		ConnMaxLifetime: time.Duration(30) * time.Minute,
+		MaxIdleConns:    5,
+		MaxOpenConns:    10,
 	}
 
-	return fmt.Errorf("failed to connect to ClickHouse")
+	tlsCfg := &tls.Config{
+		ServerName:         config.AppConfig.Database.ClickHouse.Host,
+		InsecureSkipVerify: config.AppConfig.Database.ClickHouse.SkipVerify,
+	}
+	options.TLS = tlsCfg
+
+	return clickhouse.Open(options)
+}
+
+// Strategy 3: Plaintext fallback (for debugging)
+func tryPlaintextConnection() (driver.Conn, error) {
+	if config.AppConfig.Database.ClickHouse.UseHTTP {
+		return nil, fmt.Errorf("plaintext fallback skipped due to UseHTTP flag")
+	}
+
+	log.Printf("Attempting plaintext fallback to %s:9000", config.AppConfig.Database.ClickHouse.Host)
+
+	options := &clickhouse.Options{
+		Addr: []string{fmt.Sprintf("%s:9000", config.AppConfig.Database.ClickHouse.Host)},
+		Auth: clickhouse.Auth{
+			Database: config.AppConfig.Database.ClickHouse.Database,
+			Username: config.AppConfig.Database.ClickHouse.User,
+			Password: config.AppConfig.Database.ClickHouse.Password,
+		},
+		Settings: clickhouse.Settings{
+			"max_execution_time":          60,
+			"allow_experimental_analyzer": 1,
+			"optimize_move_to_prewhere":   1,
+			"use_uncompressed_cache":      0,
+		},
+		Compression:     &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
+		DialTimeout:     time.Duration(30) * time.Second,
+		ConnMaxLifetime: time.Duration(30) * time.Minute,
+		MaxIdleConns:    5,
+		MaxOpenConns:    10,
+	}
+
+	return clickhouse.Open(options)
 }
 
 func CloseClickHouse() error {
