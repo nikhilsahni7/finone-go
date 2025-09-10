@@ -38,11 +38,14 @@ type PostgresConfig struct {
 }
 
 type ClickHouseConfig struct {
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	User     string `yaml:"user"`
-	Password string `yaml:"password"`
-	Database string `yaml:"database"`
+	Host       string `yaml:"host"`
+	Port       int    `yaml:"port"`
+	User       string `yaml:"user"`
+	Password   string `yaml:"password"`
+	Database   string `yaml:"database"`
+	UseHTTP    bool   `yaml:"use_http"`
+	Secure     bool   `yaml:"secure"`
+	SkipVerify bool   `yaml:"skip_verify"`
 }
 
 type JWTConfig struct {
@@ -134,6 +137,9 @@ func loadFromEnv(config *Config) {
 	config.Database.ClickHouse.User = getEnv("CLICKHOUSE_USER", "default")
 	config.Database.ClickHouse.Password = getEnv("CLICKHOUSE_PASSWORD", "")
 	config.Database.ClickHouse.Database = getEnv("CLICKHOUSE_DB", "finone_search")
+	config.Database.ClickHouse.UseHTTP = getEnvAsBool("CLICKHOUSE_USE_HTTP", false)
+	config.Database.ClickHouse.Secure = getEnvAsBool("CLICKHOUSE_SECURE", false)
+	config.Database.ClickHouse.SkipVerify = getEnvAsBool("CLICKHOUSE_SKIP_VERIFY", false)
 
 	config.JWT.Secret = getEnv("JWT_SECRET", "your-super-secret-key-change-in-production")
 	config.JWT.Expiry = time.Duration(getEnvAsInt("JWT_EXPIRY_HOURS", 24)) * time.Hour
@@ -167,6 +173,18 @@ func getEnvAsInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		if intValue, err := strconv.Atoi(value); err == nil {
 			return intValue
+		}
+	}
+	return defaultValue
+}
+
+func getEnvAsBool(key string, defaultValue bool) bool {
+	if value := os.Getenv(key); value != "" {
+		switch value {
+		case "1", "true", "TRUE", "True":
+			return true
+		case "0", "false", "FALSE", "False":
+			return false
 		}
 	}
 	return defaultValue

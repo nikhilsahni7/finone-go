@@ -234,7 +234,7 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 	if len(req.FieldQueries) == 0 && len(req.Fields) == 0 && strings.ToLower(req.MatchType) != "full" && strings.TrimSpace(req.Query) != "" {
 		// Use MV for broad text search
 		mvQuery := `SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at
-		            FROM finone_search.people_search_mv
+		            FROM finone_search.people_search_idx
 		            WHERE search_text ILIKE ?`
 		args = append(args, strings.TrimSpace(req.Query))
 		if req.Limit > 0 {
@@ -478,7 +478,7 @@ func (s *SearchService) getTotalCount(req *models.SearchRequest, ctx context.Con
 	whereClause := "(" + strings.Join(conditions, " "+logicOperator+" ") + ")"
 	// Fast path: if no field filters and partial, count via MV for accuracy & speed
 	if len(req.FieldQueries) == 0 && len(req.Fields) == 0 && strings.ToLower(req.MatchType) != "full" && strings.TrimSpace(req.Query) != "" {
-		mvCount := `SELECT count() FROM finone_search.people_search_mv WHERE search_text ILIKE ? SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1`
+		mvCount := `SELECT count() FROM finone_search.people_search_idx WHERE search_text ILIKE ? SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1`
 		var totalCount uint64
 		err := database.ClickHouseDB.QueryRow(ctx, mvCount, "%"+strings.TrimSpace(req.Query)+"%").Scan(&totalCount)
 		if err != nil {

@@ -12,11 +12,14 @@ database:
     dbname: "finome_search"
     sslmode: "disable"
   clickhouse:
-    host: "localhost"
-    port: 9000
+    host: "chpmx6urtm.ap-south-1.aws.clickhouse.cloud"
+    port: 9440
     user: "default"
-    password: "nikhil"
-    database: "finone_search"
+    password: "~853.uUOFB4DD"
+    database: "default"
+    use_http: false
+    secure: true
+    skip_verify: false
 
 jwt:
   secret: "your-super-secret-key-change-in-production"
