@@ -13,11 +13,11 @@ database:
     sslmode: "disable"
   clickhouse:
     host: "chpmx6urtm.ap-south-1.aws.clickhouse.cloud"
-    port: 8443
+    port: 9440
     user: "default"
     password: "~853.uUOFB4DD"
     database: "default"
-    use_http: true
+    use_http: false
     secure: true
     skip_verify: false
 
