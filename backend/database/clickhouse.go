@@ -3,10 +3,11 @@ package database
 import (
 	"context"
 	"crypto/tls"
-	"finone-search-system/config"
 	"fmt"
 	"log"
 	"time"
+
+	"finone-search-system/config"
 
 	"github.com/ClickHouse/clickhouse-go/v2"
 	"github.com/ClickHouse/clickhouse-go/v2/lib/driver"
@@ -34,18 +35,15 @@ func InitClickHouse() error {
 		DialTimeout: time.Duration(10) * time.Second,
 	}
 
-	// Configure protocol/TLS for ClickHouse Cloud
+	// TLS for native TLS:9440 or HTTPS:8443
 	if config.AppConfig.Database.ClickHouse.Secure || config.AppConfig.Database.ClickHouse.UseHTTP {
-		// TLS enabled for both native TLS:9440 or HTTPS:8443
 		tlsCfg := &tls.Config{
 			ServerName:         config.AppConfig.Database.ClickHouse.Host,
 			InsecureSkipVerify: config.AppConfig.Database.ClickHouse.SkipVerify,
 		}
 		options.TLS = tlsCfg
 	}
-	if config.AppConfig.Database.ClickHouse.UseHTTP {
-		options.Protocol = clickhouse.HTTP
-	}
+	// Do NOT set HTTP protocol here; native TLS is used with Open(), HTTP requires OpenDB path.
 
 	// Attempt primary connection
 	conn, err := clickhouse.Open(options)
@@ -75,7 +73,6 @@ func InitClickHouse() error {
 			Settings:    options.Settings,
 			Compression: options.Compression,
 			DialTimeout: options.DialTimeout,
-			// TLS intentionally nil for plaintext
 		}
 		fbConn, fbErr := clickhouse.Open(fallback)
 		if fbErr == nil {
