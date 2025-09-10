@@ -88,6 +88,10 @@ ALTER TABLE people ADD INDEX IF NOT EXISTS idx_pincode_bf pincode TYPE bloom_fil
 ALTER TABLE people MATERIALIZE COLUMN pincode;
 ALTER TABLE people MATERIALIZE INDEX idx_pincode_bf;
 
+-- Add ngram index on materialized view search text for fast token matching
+ALTER TABLE people_search_mv ADD INDEX IF NOT EXISTS idx_search_text_ngram search_text TYPE ngrambf_v1(3, 256, 2) GRANULARITY 4;
+ALTER TABLE people_search_mv MATERIALIZE INDEX idx_search_text_ngram;
+
 -- Sample data insertion (remove after testing)
 -- This will be replaced by your CSV import
 -- INSERT INTO people (master_id, mobile, name, fname, address, alt, circle, email) VALUES

@@ -93,6 +93,37 @@ func RunClickHouseMigrations() error {
 		         max_compress_block_size = 1048576,
 		         min_compress_block_size = 65536`,
 
+		// Materialized view for fast broad text search across fields
+		`CREATE MATERIALIZED VIEW IF NOT EXISTS finone_search.people_search_mv
+		(
+			id UUID,
+			master_id String,
+			mobile String,
+			name String,
+			fname String,
+			address String,
+			alt String,
+			circle String,
+			email String,
+			search_text String,
+			created_at DateTime
+		)
+		ENGINE = MergeTree()
+		ORDER BY search_text
+		AS SELECT
+			id,
+			master_id,
+			mobile,
+			name,
+			fname,
+			address,
+			alt,
+			circle,
+			email,
+			concat(mobile, ' ', name, ' ', fname, ' ', address, ' ', alt, ' ', circle, ' ', email) as search_text,
+			created_at
+		FROM finone_search.people`,
+
 		`CREATE TABLE IF NOT EXISTS finone_search.search_performance
 		(
 			query_id String,
@@ -110,6 +141,9 @@ func RunClickHouseMigrations() error {
 		`ALTER TABLE finone_search.people ADD INDEX IF NOT EXISTS idx_pincode_bf pincode TYPE bloom_filter GRANULARITY 4`,
 		`ALTER TABLE finone_search.people MATERIALIZE COLUMN pincode`,
 		`ALTER TABLE finone_search.people MATERIALIZE INDEX idx_pincode_bf`,
+		// Add and materialize ngram index on MV search_text
+		`ALTER TABLE finone_search.people_search_mv ADD INDEX IF NOT EXISTS idx_search_text_ngram search_text TYPE ngrambf_v1(3, 256, 2) GRANULARITY 4`,
+		`ALTER TABLE finone_search.people_search_mv MATERIALIZE INDEX idx_search_text_ngram`,
 	}
 
 	for i, query := range migrationQueries {

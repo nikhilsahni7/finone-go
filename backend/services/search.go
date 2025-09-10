@@ -97,9 +97,9 @@ func (s *SearchService) buildFieldCondition(field string, value string, matchTyp
 			return "pincode = ?", true
 		}
 		if len(digits) >= 4 {
-			// Partial pincode: fallback to address filtering to keep current behavior
-			c1 := "address ILIKE ?"
-			*args = append(*args, "%"+digits+"%")
+			// Partial pincode: fallback to address filtering using case-insensitive position + regex token boundary
+			c1 := "positionCaseInsensitive(address, ?) > 0"
+			*args = append(*args, digits)
 			pattern := fmt.Sprintf("(^|[^0-9])%s([^0-9]|$)", regexp.QuoteMeta(digits))
 			c2 := "match(address, ?)"
 			*args = append(*args, pattern)
@@ -229,6 +229,24 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 
 	conditions := []string{}
 	args := []interface{}{}
+
+	// Fast path: if no field filters provided and partial match, use materialized view for token search
+	if len(req.FieldQueries) == 0 && len(req.Fields) == 0 && strings.ToLower(req.MatchType) != "full" && strings.TrimSpace(req.Query) != "" {
+		// Use MV for broad text search
+		mvQuery := `SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at
+		            FROM finone_search.people_search_mv
+		            WHERE positionCaseInsensitive(search_text, ?) > 0
+		            ORDER BY mobile, name`
+		args = append(args, strings.TrimSpace(req.Query))
+		if req.Limit > 0 {
+			mvQuery += fmt.Sprintf(" LIMIT %d", req.Limit)
+		}
+		if req.Offset > 0 {
+			mvQuery += fmt.Sprintf(" OFFSET %d", req.Offset)
+		}
+		mvQuery += " SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1"
+		return mvQuery, args
+	}
 
 	// Check if we have field-specific queries (preferred method)
 	if len(req.FieldQueries) > 0 {
@@ -440,6 +458,7 @@ func (s *SearchService) getTotalCount(req *models.SearchRequest, ctx context.Con
 				args = append(args, req.Query)
 			}
 		} else {
+			// Should be handled earlier by MV fast path; keep as safety fallback
 			condition := "(mobile ILIKE ? OR name ILIKE ? OR fname ILIKE ? OR address ILIKE ? OR alt ILIKE ? OR circle ILIKE ? OR email ILIKE ? OR master_id ILIKE ?)"
 			conditions = append(conditions, condition)
 			queryWithWildcard := "%" + req.Query + "%"
@@ -456,6 +475,17 @@ func (s *SearchService) getTotalCount(req *models.SearchRequest, ctx context.Con
 	}
 
 	whereClause := "(" + strings.Join(conditions, " "+logicOperator+" ") + ")"
+	// Fast path: if no field filters and partial, count via MV for accuracy & speed
+	if len(req.FieldQueries) == 0 && len(req.Fields) == 0 && strings.ToLower(req.MatchType) != "full" && strings.TrimSpace(req.Query) != "" {
+		mvCount := `SELECT count() FROM finone_search.people_search_mv WHERE positionCaseInsensitive(search_text, ?) > 0 SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1`
+		var totalCount uint64
+		err := database.ClickHouseDB.QueryRow(ctx, mvCount, strings.TrimSpace(req.Query)).Scan(&totalCount)
+		if err != nil {
+			return 0, fmt.Errorf("failed to get total count via MV: %w", err)
+		}
+		return int(totalCount), nil
+	}
+
 	countQuery := baseQuery + whereClause + " SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1"
 
 	var totalCount uint64
@@ -1010,12 +1040,13 @@ func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.Enhan
 
 	utils.LogInfo(fmt.Sprintf("Enhanced mobile search for: %s (cleaned: %s)", req.MobileNumber, cleanedMobile))
 
-	// Step 1: Find all direct mobile number matches (both exact and partial)
+	// Step 1: Paginated direct mobile/alt matches (apply LIMIT/OFFSET at SQL level)
 	directMatchQuery := `
 		SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at
 		FROM finone_search.people
 		WHERE mobile = ? OR mobile ILIKE ? OR mobile ILIKE ? OR alt = ? OR alt ILIKE ? OR alt ILIKE ?
 		ORDER BY mobile, name
+		LIMIT ? OFFSET ?
 		SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1
 	`
 
@@ -1029,156 +1060,68 @@ func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.Enhan
 		cleanedMobile + "%", // Alt starts with
 	}
 
-	var directMatches []models.Person
-	err = database.ClickHouseDB.Select(ctx, &directMatches, directMatchQuery, mobileVariations...)
+	// We fetch limit+1 to determine hasMore without a second full scan
+	pageLimit := req.Limit
+	if pageLimit <= 0 {
+		pageLimit = 1000
+	}
+	fetchLimit := pageLimit + 1
+
+	directArgs := append(append([]interface{}{}, mobileVariations...), fetchLimit, req.Offset)
+
+	var directMatchesPage []models.Person
+	err = database.ClickHouseDB.Select(ctx, &directMatchesPage, directMatchQuery, directArgs...)
 	if err != nil {
 		utils.LogError("Direct mobile search failed", err)
 		return nil, fmt.Errorf("direct mobile search failed: %w", err)
 	}
 
-	utils.LogInfo(fmt.Sprintf("Found %d direct matches for mobile: %s", len(directMatches), cleanedMobile))
+	// Compute hasMore and trim to requested page size
+	hasMore := false
+	if len(directMatchesPage) > pageLimit {
+		hasMore = true
+		directMatchesPage = directMatchesPage[:pageLimit]
+	}
 
-	// Step 2: Extract unique master_ids from direct matches
-	masterIDMap := make(map[string]bool)
-	for _, person := range directMatches {
-		if person.MasterID != "" && s.isValidMasterID(person.MasterID) {
-			masterIDMap[person.MasterID] = true
+	// Step 2: Total count for direct matches only (fast, avoids master_id expansion)
+	countQuery := `
+		SELECT count()
+		FROM finone_search.people
+		WHERE mobile = ? OR mobile ILIKE ? OR mobile ILIKE ? OR alt = ? OR alt ILIKE ? OR alt ILIKE ?
+		SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1
+	`
+	var totalDirectCount uint64
+	err = database.ClickHouseDB.QueryRow(ctx, countQuery, mobileVariations...).Scan(&totalDirectCount)
+	if err != nil {
+		// Do not fail the request if count is slow; fall back to page size
+		utils.LogError("Direct count query failed", err)
+		totalDirectCount = uint64(req.Offset + len(directMatchesPage))
+		if hasMore {
+			totalDirectCount++
 		}
 	}
 
-	var masterIDMatches []models.Person
-	var uniqueMasterIDs []string
-
-	if len(masterIDMap) > 0 {
-		// Convert map to slice for query
-		for masterID := range masterIDMap {
-			uniqueMasterIDs = append(uniqueMasterIDs, masterID)
-		}
-
-		utils.LogInfo(fmt.Sprintf("Found %d unique master_ids, searching for related records", len(uniqueMasterIDs)))
-
-		// Step 3: Find all records with these master_ids (excluding already found direct matches)
-		// Build dynamic IN clause for master_ids
-		placeholders := make([]string, len(uniqueMasterIDs))
-		masterIDArgs := make([]interface{}, len(uniqueMasterIDs))
-		for i, masterID := range uniqueMasterIDs {
-			placeholders[i] = "?"
-			masterIDArgs[i] = masterID
-		}
-
-		masterIDQuery := fmt.Sprintf(`
-			SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at
-			FROM finone_search.people
-			WHERE master_id IN (%s)
-			AND id NOT IN (
-				SELECT id FROM finone_search.people
-				WHERE mobile = ? OR mobile ILIKE ? OR mobile ILIKE ? OR alt = ? OR alt ILIKE ? OR alt ILIKE ?
-			)
-			ORDER BY master_id, mobile, name
-			SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1
-		`, strings.Join(placeholders, ","))
-
-		// Combine master_id args with mobile variations for exclusion
-		allArgs := append(masterIDArgs, mobileVariations...)
-
-		err = database.ClickHouseDB.Select(ctx, &masterIDMatches, masterIDQuery, allArgs...)
-		if err != nil {
-			utils.LogError("Master ID search failed", err)
-			return nil, fmt.Errorf("master ID search failed: %w", err)
-		}
-
-		utils.LogInfo(fmt.Sprintf("Found %d additional records with matching master_ids", len(masterIDMatches)))
-	}
-
-	// Step 4: Get total counts for pagination
-	totalDirectCount := len(directMatches)
-	totalMasterIDCount := len(masterIDMatches)
-	totalCount := totalDirectCount + totalMasterIDCount
-
-	// Step 5: Apply pagination to combined results
-	var finalDirectMatches, finalMasterIDMatches []models.Person
-
-	if req.Limit > 0 {
-		// Apply pagination logic
-		if req.Offset < totalDirectCount {
-			// We're still in the direct matches range
-			endIndex := req.Offset + req.Limit
-			if endIndex > totalDirectCount {
-				endIndex = totalDirectCount
-			}
-			finalDirectMatches = directMatches[req.Offset:endIndex]
-
-			// If we have remaining limit, get from master ID matches
-			remainingLimit := req.Limit - len(finalDirectMatches)
-			if remainingLimit > 0 && len(masterIDMatches) > 0 {
-				masterEndIndex := remainingLimit
-				if masterEndIndex > len(masterIDMatches) {
-					masterEndIndex = len(masterIDMatches)
-				}
-				finalMasterIDMatches = masterIDMatches[0:masterEndIndex]
-			}
-		} else {
-			// We're in the master ID matches range
-			masterOffset := req.Offset - totalDirectCount
-			if masterOffset < len(masterIDMatches) {
-				endIndex := masterOffset + req.Limit
-				if endIndex > len(masterIDMatches) {
-					endIndex = len(masterIDMatches)
-				}
-				finalMasterIDMatches = masterIDMatches[masterOffset:endIndex]
-			}
-		}
-	} else {
-		// No pagination, return all results
-		finalDirectMatches = directMatches
-		finalMasterIDMatches = masterIDMatches
-	}
-
+	// Log performance metrics (based on direct matches path)
 	executionTime := int(time.Since(startTime).Milliseconds())
-	hasMore := (req.Offset + len(finalDirectMatches) + len(finalMasterIDMatches)) < totalCount
+	s.logSearchPerformance(searchID, userID.String(), "ENHANCED_MOBILE", executionTime, len(directMatchesPage))
 
-	// Log the search
-	searchReq := &models.SearchRequest{
-		Query:          fmt.Sprintf("ENHANCED_MOBILE: %s", req.MobileNumber),
-		Fields:         []string{"mobile", "alt"},
-		Logic:          "OR",
-		MatchType:      "partial",
-		Limit:          req.Limit,
-		Offset:         req.Offset,
-		EnhancedMobile: true,
-	}
-	fingerprint := s.computeSearchFingerprint(searchReq)
-	isDup, _ := s.isDuplicateSearchToday(userID, fingerprint)
-	s.logSearch(userID, searchReq, totalCount, executionTime, searchID, fingerprint)
-
-	// Log performance metrics
-	queryText := fmt.Sprintf("Enhanced mobile search: %s (found %d master_ids)", cleanedMobile, len(uniqueMasterIDs))
-	s.logSearchPerformance(searchID, userID.String(), queryText, executionTime, totalCount)
-
-	// Only increment user's daily search count if we found results and not duplicate
-	if totalCount > 0 && !isDup {
+	// Increment daily search count only if we found results
+	if totalDirectCount > 0 {
 		if err := authService.IncrementSearchCount(userID); err != nil {
 			utils.LogError("Failed to increment search count", err)
 		}
-	} else if totalCount == 0 {
-		utils.LogInfo("No results found in enhanced mobile search, search count not incremented")
-	} else if isDup {
-		utils.LogInfo("Duplicate enhanced-mobile search detected for today, search count not incremented")
 	}
 
-	utils.LogInfo(fmt.Sprintf("Enhanced mobile search completed in %dms. Direct: %d, Master ID: %d, Total: %d",
-		executionTime, len(finalDirectMatches), len(finalMasterIDMatches), totalCount))
-
 	return &models.EnhancedMobileSearchResponse{
-		DirectMatches:        finalDirectMatches,
-		MasterIDMatches:      finalMasterIDMatches,
-		TotalDirectMatches:   totalDirectCount,
-		TotalMasterIDMatches: totalMasterIDCount,
-		TotalCount:           totalCount,
+		DirectMatches:        directMatchesPage,
+		MasterIDMatches:      []models.Person{}, // omitted for performance
+		TotalDirectMatches:   int(totalDirectCount),
+		TotalMasterIDMatches: 0,
+		TotalCount:           int(totalDirectCount),
 		ExecutionTime:        executionTime,
 		SearchID:             searchID,
 		HasMore:              hasMore,
-		MasterIDs:            uniqueMasterIDs,
+		MasterIDs:            []string{},
 	}, nil
 }
 
