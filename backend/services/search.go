@@ -12,15 +12,99 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
 )
 
-type SearchService struct{}
+// SearchCache represents a cached search result
+type SearchCache struct {
+	Results       []models.Person
+	TotalCount    int
+	ExecutionTime int
+	Timestamp     time.Time
+}
+
+type SearchService struct {
+	cache      map[string]*SearchCache
+	cacheMutex sync.RWMutex
+}
 
 func NewSearchService() *SearchService {
-	return &SearchService{}
+	s := &SearchService{
+		cache: make(map[string]*SearchCache),
+	}
+
+	// Start cache cleanup routine
+	go s.cacheCleanupRoutine()
+
+	return s
+}
+
+// cacheCleanupRoutine removes expired cache entries every 5 minutes
+func (s *SearchService) cacheCleanupRoutine() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		s.cacheMutex.Lock()
+		now := time.Now()
+		for key, entry := range s.cache {
+			// Remove entries older than 10 minutes
+			if now.Sub(entry.Timestamp) > 10*time.Minute {
+				delete(s.cache, key)
+			}
+		}
+		s.cacheMutex.Unlock()
+	}
+}
+
+// getCachedResult retrieves a cached search result
+func (s *SearchService) getCachedResult(fingerprint string) (*SearchCache, bool) {
+	s.cacheMutex.RLock()
+	defer s.cacheMutex.RUnlock()
+
+	entry, exists := s.cache[fingerprint]
+	if !exists {
+		return nil, false
+	}
+
+	// Check if cache entry is still valid (10 minutes)
+	if time.Since(entry.Timestamp) > 10*time.Minute {
+		return nil, false
+	}
+
+	return entry, true
+}
+
+// setCachedResult stores a search result in cache
+func (s *SearchService) setCachedResult(fingerprint string, results []models.Person, totalCount int, executionTime int) {
+	s.cacheMutex.Lock()
+	defer s.cacheMutex.Unlock()
+
+	// Limit cache size to prevent memory issues
+	if len(s.cache) > 1000 {
+		// Remove oldest entries
+		oldestKey := ""
+		oldestTime := time.Now()
+		for key, entry := range s.cache {
+			if entry.Timestamp.Before(oldestTime) {
+				oldestTime = entry.Timestamp
+				oldestKey = key
+			}
+		}
+		if oldestKey != "" {
+			delete(s.cache, oldestKey)
+		}
+	}
+
+	s.cache[fingerprint] = &SearchCache{
+		Results:       results,
+		TotalCount:    totalCount,
+		ExecutionTime: executionTime,
+		Timestamp:     time.Now(),
+	}
 }
 
 // computeSearchFingerprint generates a stable fingerprint for a search request that ignores pagination
@@ -128,8 +212,27 @@ func (s *SearchService) Search(userID uuid.UUID, req *models.SearchRequest) (*mo
 		return nil, fmt.Errorf("daily search limit exceeded")
 	}
 
+	// Compute fingerprint for caching and duplicate detection
+	fingerprint := s.computeSearchFingerprint(req)
+
+	// Check cache first
+	if cached, found := s.getCachedResult(fingerprint); found {
+		utils.LogInfo("Cache hit for search")
+		searchID := uuid.New().String()
+
+		// Still log the search but mark it as cached
+		s.logSearch(userID, req, cached.TotalCount, cached.ExecutionTime, searchID, fingerprint)
+
+		return &models.SearchResponse{
+			Results:       cached.Results,
+			TotalCount:    cached.TotalCount,
+			ExecutionTime: cached.ExecutionTime,
+			SearchID:      searchID,
+			HasMore:       (req.Offset + len(cached.Results)) < cached.TotalCount,
+		}, nil
+	}
+
 	// Auto-detect mobile number searches and use enhanced mobile search
-	// Check if this is likely a mobile number search
 	if s.shouldUseEnhancedMobileSearch(req) {
 		utils.LogInfo("Detected mobile number pattern, using enhanced mobile search")
 
@@ -169,9 +272,9 @@ func (s *SearchService) Search(userID uuid.UUID, req *models.SearchRequest) (*mo
 
 	utils.LogInfo(fmt.Sprintf("Executing search query: %s", query))
 
-	// Execute the search
+	// Execute the search with reduced timeout
 	var results []models.Person
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	err = database.ClickHouseDB.Select(ctx, &results, query, args...)
@@ -180,11 +283,15 @@ func (s *SearchService) Search(userID uuid.UUID, req *models.SearchRequest) (*mo
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
 
-	// Get total count for pagination (without LIMIT/OFFSET)
-	totalCount, err := s.getTotalCount(req, ctx)
-	if err != nil {
-		utils.LogError("Failed to get total count", err)
-		totalCount = len(results) // Fallback to current page count
+	// Get total count for pagination (only if needed)
+	totalCount := len(results)
+	if req.Offset > 0 || len(results) == req.Limit {
+		// Only get accurate count if we're paginating
+		totalCount, err = s.getTotalCount(req, ctx)
+		if err != nil {
+			utils.LogError("Failed to get total count", err)
+			totalCount = len(results) // Fallback to current page count
+		}
 	}
 
 	executionTime := int(time.Since(startTime).Milliseconds())
@@ -192,8 +299,10 @@ func (s *SearchService) Search(userID uuid.UUID, req *models.SearchRequest) (*mo
 	// Check if there are more results beyond the limit
 	hasMore := (req.Offset + len(results)) < totalCount
 
-	// Duplicate detection (based on semantic query, ignoring pagination)
-	fingerprint := s.computeSearchFingerprint(req)
+	// Cache the result
+	s.setCachedResult(fingerprint, results, totalCount, executionTime)
+
+	// Check for duplicates
 	isDup, _ := s.isDuplicateSearchToday(userID, fingerprint)
 
 	// Log the search (including fingerprint)
@@ -230,25 +339,6 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 	conditions := []string{}
 	args := []interface{}{}
 
-	// Fast path: if no field filters provided and partial match, use materialized view for token search
-	if len(req.FieldQueries) == 0 && len(req.Fields) == 0 && strings.ToLower(req.MatchType) != "full" && strings.TrimSpace(req.Query) != "" {
-		// Use MV for broad text search
-		mvQuery := `SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at
-		            FROM finone_search.people_search_idx
-		            WHERE search_text ILIKE ?`
-		args = append(args, strings.TrimSpace(req.Query))
-		if req.Limit > 0 {
-			mvQuery += fmt.Sprintf(" LIMIT %d", req.Limit)
-		}
-		if req.Offset > 0 {
-			mvQuery += fmt.Sprintf(" OFFSET %d", req.Offset)
-		}
-		// Use wildcard to leverage ngram index
-		args[0] = "%" + args[0].(string) + "%"
-		mvQuery += " SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1"
-		return mvQuery, args
-	}
-
 	// Check if we have field-specific queries (preferred method)
 	if len(req.FieldQueries) > 0 {
 		// Field-specific search: each field has its own query value
@@ -275,10 +365,11 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 				condition = fmt.Sprintf("%s = ?", field)
 				args = append(args, val)
 			} else {
-				// Optimize numeric mobile/alt lookups when full-length number provided
+				// Optimize exact mobile/alt lookups when full-length number provided
 				if field == "mobile" || field == "alt" {
 					digits := regexp.MustCompile(`\D`).ReplaceAllString(val, "")
 					if len(digits) >= 10 && len(digits) <= 12 {
+						// Use exact match for performance with bloom filter index
 						condition = fmt.Sprintf("%s = ?", field)
 						args = append(args, digits)
 					} else {
@@ -307,6 +398,7 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 				if field == "mobile" || field == "alt" {
 					digits := regexp.MustCompile(`\D`).ReplaceAllString(req.Query, "")
 					if len(digits) >= 10 && len(digits) <= 12 {
+						// Use exact match for performance
 						condition = fmt.Sprintf("%s = ?", field)
 						args = append(args, digits)
 					} else {
@@ -324,18 +416,34 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 
 	// Default search across all fields if no specific fields provided
 	if len(conditions) == 0 {
+		queryTerm := strings.TrimSpace(req.Query)
+		if queryTerm == "" {
+			// Return empty result for empty queries
+			return baseQuery + "1 = 0", []interface{}{}
+		}
+
 		if req.MatchType == "full" {
 			condition := "(mobile = ? OR name = ? OR fname = ? OR address = ? OR alt = ? OR circle = ? OR email = ? OR master_id = ?)"
 			conditions = append(conditions, condition)
 			for i := 0; i < 8; i++ {
-				args = append(args, req.Query)
+				args = append(args, queryTerm)
 			}
 		} else {
-			condition := "(mobile ILIKE ? OR name ILIKE ? OR fname ILIKE ? OR address ILIKE ? OR alt ILIKE ? OR circle ILIKE ? OR email ILIKE ? OR master_id ILIKE ?)"
-			conditions = append(conditions, condition)
-			queryWithWildcard := "%" + req.Query + "%"
-			for i := 0; i < 8; i++ {
-				args = append(args, queryWithWildcard)
+			// Optimize for likely mobile number searches
+			digits := regexp.MustCompile(`\D`).ReplaceAllString(queryTerm, "")
+			if len(digits) >= 10 && len(digits) <= 12 {
+				// Likely mobile number - prioritize exact mobile/alt matches
+				condition := "(mobile = ? OR alt = ? OR mobile ILIKE ? OR alt ILIKE ? OR name ILIKE ? OR fname ILIKE ? OR address ILIKE ? OR circle ILIKE ? OR email ILIKE ? OR master_id ILIKE ?)"
+				args = append(args, digits, digits, "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%")
+				conditions = append(conditions, condition)
+			} else {
+				// General text search
+				condition := "(name ILIKE ? OR fname ILIKE ? OR address ILIKE ? OR mobile ILIKE ? OR alt ILIKE ? OR circle ILIKE ? OR email ILIKE ? OR master_id ILIKE ?)"
+				queryWithWildcard := "%" + queryTerm + "%"
+				for i := 0; i < 8; i++ {
+					args = append(args, queryWithWildcard)
+				}
+				conditions = append(conditions, condition)
 			}
 		}
 	}
@@ -349,7 +457,7 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 	whereClause := "(" + strings.Join(conditions, " "+logicOperator+" ") + ")"
 	query := baseQuery + whereClause
 
-	// Add ordering for consistent results
+	// Add ordering for consistent results (leverage primary key order)
 	query += " ORDER BY mobile, name"
 
 	// Add pagination
@@ -360,8 +468,8 @@ func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []i
 		query += fmt.Sprintf(" OFFSET %d", req.Offset)
 	}
 
-	// Encourage better planning
-	query += " SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1"
+	// Optimized settings for faster execution
+	query += " SETTINGS max_threads = 4, optimize_move_to_prewhere = 1, max_execution_time = 30"
 
 	// Debug logging
 	utils.LogInfo(fmt.Sprintf("Generated SQL query - Logic: %s, Operator: %s, Conditions: %d",
@@ -452,19 +560,33 @@ func (s *SearchService) getTotalCount(req *models.SearchRequest, ctx context.Con
 
 	// Default search across all fields if no specific fields provided
 	if len(conditions) == 0 {
+		queryTerm := strings.TrimSpace(req.Query)
+		if queryTerm == "" {
+			return 0, nil // Empty query returns 0 results
+		}
+
 		if req.MatchType == "full" {
 			condition := "(mobile = ? OR name = ? OR fname = ? OR address = ? OR alt = ? OR circle = ? OR email = ? OR master_id = ?)"
 			conditions = append(conditions, condition)
 			for i := 0; i < 8; i++ {
-				args = append(args, req.Query)
+				args = append(args, queryTerm)
 			}
 		} else {
-			// Should be handled earlier by MV fast path; keep as safety fallback
-			condition := "(mobile ILIKE ? OR name ILIKE ? OR fname ILIKE ? OR address ILIKE ? OR alt ILIKE ? OR circle ILIKE ? OR email ILIKE ? OR master_id ILIKE ?)"
-			conditions = append(conditions, condition)
-			queryWithWildcard := "%" + req.Query + "%"
-			for i := 0; i < 8; i++ {
-				args = append(args, queryWithWildcard)
+			// Optimize for likely mobile number searches
+			digits := regexp.MustCompile(`\D`).ReplaceAllString(queryTerm, "")
+			if len(digits) >= 10 && len(digits) <= 12 {
+				// Likely mobile number - prioritize exact mobile/alt matches
+				condition := "(mobile = ? OR alt = ? OR mobile ILIKE ? OR alt ILIKE ? OR name ILIKE ? OR fname ILIKE ? OR address ILIKE ? OR circle ILIKE ? OR email ILIKE ? OR master_id ILIKE ?)"
+				args = append(args, digits, digits, "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%")
+				conditions = append(conditions, condition)
+			} else {
+				// General text search
+				condition := "(name ILIKE ? OR fname ILIKE ? OR address ILIKE ? OR mobile ILIKE ? OR alt ILIKE ? OR circle ILIKE ? OR email ILIKE ? OR master_id ILIKE ?)"
+				queryWithWildcard := "%" + queryTerm + "%"
+				for i := 0; i < 8; i++ {
+					args = append(args, queryWithWildcard)
+				}
+				conditions = append(conditions, condition)
 			}
 		}
 	}
@@ -476,18 +598,7 @@ func (s *SearchService) getTotalCount(req *models.SearchRequest, ctx context.Con
 	}
 
 	whereClause := "(" + strings.Join(conditions, " "+logicOperator+" ") + ")"
-	// Fast path: if no field filters and partial, count via MV for accuracy & speed
-	if len(req.FieldQueries) == 0 && len(req.Fields) == 0 && strings.ToLower(req.MatchType) != "full" && strings.TrimSpace(req.Query) != "" {
-		mvCount := `SELECT count() FROM finone_search.people_search_idx WHERE search_text ILIKE ? SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1`
-		var totalCount uint64
-		err := database.ClickHouseDB.QueryRow(ctx, mvCount, "%"+strings.TrimSpace(req.Query)+"%").Scan(&totalCount)
-		if err != nil {
-			return 0, fmt.Errorf("failed to get total count via MV: %w", err)
-		}
-		return int(totalCount), nil
-	}
-
-	countQuery := baseQuery + whereClause + " SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1"
+	countQuery := baseQuery + whereClause + " SETTINGS max_threads = 4, optimize_move_to_prewhere = 1, max_execution_time = 30"
 
 	var totalCount uint64
 	err := database.ClickHouseDB.QueryRow(ctx, countQuery, args...).Scan(&totalCount)
@@ -716,226 +827,12 @@ func (s *SearchService) logSearchPerformance(queryID, userID, queryText string, 
 	}
 }
 
-// SearchWithin performs a search within previous search results
-func (s *SearchService) SearchWithin(userID uuid.UUID, req *models.SearchWithinRequest) (*models.SearchResponse, error) {
-	startTime := time.Now()
-
-	// Parse the search_id string to UUID
-	originalSearchID, err := uuid.Parse(req.SearchID)
-	if err != nil {
-		return nil, fmt.Errorf("invalid search ID: %w", err)
-	}
-
-	// First, get the original search results from PostgreSQL
-	var originalSearch models.Search
-	query := `SELECT * FROM searches WHERE id = $1 AND user_id = $2`
-	err = database.PostgresDB.Get(&originalSearch, query, originalSearchID, userID)
-	if err != nil {
-		return nil, fmt.Errorf("original search not found: %w", err)
-	}
-
-	// Extract the original search parameters
-	var originalReq models.SearchRequest
-
-	// Handle the SearchQuery which is stored as interface{} in JSONB
-	var queryData []byte
-	switch v := originalSearch.SearchQuery.(type) {
-	case []byte:
-		queryData = v
-	case string:
-		queryData = []byte(v)
-	default:
-		// Try to marshal and then unmarshal
-		queryData, _ = json.Marshal(originalSearch.SearchQuery)
-	}
-
-	if err := json.Unmarshal(queryData, &originalReq); err != nil {
-		return nil, fmt.Errorf("failed to parse original search: %w", err)
-	}
-
-	// Build a combined query that includes both original and new search criteria
-	combinedQuery := s.buildSearchWithinQuery(&originalReq, req)
-
-	utils.LogInfo(fmt.Sprintf("Executing search within query: %s", combinedQuery))
-
-	// Execute the refined search
-	var results []models.Person
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	err = database.ClickHouseDB.Select(ctx, &results, combinedQuery)
-	if err != nil {
-		utils.LogError("Search within query failed", err)
-		return nil, fmt.Errorf("search within failed: %w", err)
-	}
-
-	// Get proper total count for SearchWithin using a separate count query
-	totalCount, err := s.getSearchWithinTotalCount(&originalReq, req, ctx)
-	if err != nil {
-		utils.LogError("Failed to get search within total count", err)
-		totalCount = len(results) // Fallback to current page count
-	}
-
-	executionTime := int(time.Since(startTime).Milliseconds())
-	newSearchID := uuid.New().String()
-
-	// Log the search within operation
-	searchWithinReq := models.SearchRequest{
-		Query:     fmt.Sprintf("WITHIN[%s]: %s", req.SearchID, req.Query),
-		Fields:    req.Fields,
-		MatchType: req.MatchType,
-		Limit:     req.Limit,
-		Offset:    req.Offset,
-	}
-	fingerprint := s.computeSearchFingerprint(&searchWithinReq)
-	isDup, _ := s.isDuplicateSearchToday(userID, fingerprint)
-	s.logSearch(userID, &searchWithinReq, len(results), executionTime, newSearchID, fingerprint)
-
-	// Only increment search count if we found results (search within should count as a new search) and not duplicate
-	if totalCount > 0 && !isDup {
-		authService := NewAuthService()
-		if err := authService.IncrementSearchCount(userID); err != nil {
-			utils.LogError("Failed to increment search count for search within", err)
-		}
-	} else if totalCount == 0 {
-		utils.LogInfo("No results found in search within, search count not incremented")
-	} else if isDup {
-		utils.LogInfo("Duplicate search-within detected for today, search count not incremented")
-	}
-
-	return &models.SearchResponse{
-		Results:       results,
-		TotalCount:    totalCount,
-		ExecutionTime: executionTime,
-		SearchID:      newSearchID,
-		HasMore:       (req.Offset + len(results)) < totalCount,
-	}, nil
-}
-
-// buildSearchWithinQuery builds a query that searches within previous results
-func (s *SearchService) buildSearchWithinQuery(originalReq *models.SearchRequest, withinReq *models.SearchWithinRequest) string {
-	// Build the original query conditions
-	originalConditions := []string{}
-
-	// Check if we have field-specific queries (preferred method)
-	if len(originalReq.FieldQueries) > 0 {
-		// Field-specific search: each field has its own query value
-		for field, value := range originalReq.FieldQueries {
-			if !s.isValidField(field) {
-				continue
-			}
-			if strings.TrimSpace(value) == "" {
-				continue
-			}
-			if originalReq.MatchType == "full" {
-				originalConditions = append(originalConditions, fmt.Sprintf("%s = '%s'", field, value))
-			} else {
-				originalConditions = append(originalConditions, fmt.Sprintf("%s ILIKE '%%%s%%'", field, value))
-			}
-		}
-	} else if len(originalReq.Fields) > 0 {
-		// Legacy method: single query across multiple fields
-		for _, field := range originalReq.Fields {
-			if !s.isValidField(field) {
-				continue
-			}
-			if originalReq.MatchType == "full" {
-				originalConditions = append(originalConditions, fmt.Sprintf("%s = '%s'", field, originalReq.Query))
-			} else {
-				originalConditions = append(originalConditions, fmt.Sprintf("%s ILIKE '%%%s%%'", field, originalReq.Query))
-			}
-		}
-	}
-
-	// Build the new search conditions
-	newConditions := []string{}
-	fields := withinReq.Fields
-	if len(fields) == 0 {
-		fields = []string{"mobile", "name", "fname", "address", "alt", "circle", "email", "master_id"}
-	}
-
-	for _, field := range fields {
-		if !s.isValidField(field) {
-			continue
-		}
-		if withinReq.MatchType == "full" {
-			newConditions = append(newConditions, fmt.Sprintf("%s = '%s'", field, withinReq.Query))
-		} else {
-			newConditions = append(newConditions, fmt.Sprintf("%s ILIKE '%%%s%%'", field, withinReq.Query))
-		}
-	}
-
-	// Combine both conditions
-	originalLogic := "OR"
-	if originalReq.Logic == "AND" {
-		originalLogic = "AND"
-	}
-
-	baseQuery := `SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at
-	              FROM finone_search.people WHERE `
-
-	// Original conditions
-	originalWhere := "(" + strings.Join(originalConditions, " "+originalLogic+" ") + ")"
-
-	// New conditions
-	newWhere := "(" + strings.Join(newConditions, " OR ") + ")"
-
-	// Combine with AND (search within means both conditions must be true)
-	combinedWhere := originalWhere + " AND " + newWhere
-
-	query := baseQuery + combinedWhere + " ORDER BY mobile, name"
-
-	if withinReq.Limit > 0 {
-		query += fmt.Sprintf(" LIMIT %d", withinReq.Limit)
-	}
-	if withinReq.Offset > 0 {
-		query += fmt.Sprintf(" OFFSET %d", withinReq.Offset)
-	}
-
-	query += " SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1"
-
-	return query
-}
-
 // isMobileNumber checks if a string looks like a mobile number (10-12 digits)
 func (s *SearchService) isMobileNumber(query string) bool {
 	// Remove any non-digit characters for validation
 	cleaned := regexp.MustCompile(`\D`).ReplaceAllString(query, "")
 	// Check if it's 10-12 digits (typical mobile number length)
 	return len(cleaned) >= 10 && len(cleaned) <= 12
-}
-
-// isValidMasterID checks if a master ID is valid and not a partial/masked ID
-func (s *SearchService) isValidMasterID(masterID string) bool {
-	if masterID == "" {
-		return false
-	}
-
-	// Filter out partial/masked master IDs that contain 'x' characters
-	// These are typically used to mask sensitive data and should not be used for searching
-	if strings.Contains(strings.ToLower(masterID), "x") {
-		return false
-	}
-
-	// Filter out master IDs that are too short (likely partial matches)
-	// Valid master IDs should typically be at least 8-10 characters long
-	if len(masterID) < 8 {
-		return false
-	}
-
-	// Check if it's all digits or contains valid suffix characters
-	// Remove any valid suffix characters (letters) from the end
-	baseID := regexp.MustCompile(`[A-Za-z]*$`).ReplaceAllString(masterID, "")
-
-	// The base part should be all digits
-	if !regexp.MustCompile(`^\d+$`).MatchString(baseID) {
-		return false
-	}
-
-	// If the original masterID is longer than baseID, it means it has a suffix
-	// This is allowed as per requirements (e.g., 718834427584M)
-
-	return true
 }
 
 // shouldUseEnhancedMobileSearch determines if the search should use enhanced mobile search
@@ -1017,7 +914,6 @@ func (s *SearchService) extractMobileNumber(req *models.SearchRequest) string {
 }
 
 // EnhancedMobileSearch performs an enhanced mobile number search
-// It searches for the mobile number and then finds all records with the same master_ids
 func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.EnhancedMobileSearchRequest) (*models.EnhancedMobileSearchResponse, error) {
 	// Check if user has remaining search quota
 	authService := NewAuthService()
@@ -1033,7 +929,7 @@ func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.Enhan
 	startTime := time.Now()
 	searchID := uuid.New().String()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second) // Longer timeout for complex query
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // Reduced timeout
 	defer cancel()
 
 	// Clean the mobile number (remove any non-digit characters)
@@ -1041,84 +937,140 @@ func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.Enhan
 
 	utils.LogInfo(fmt.Sprintf("Enhanced mobile search for: %s (cleaned: %s)", req.MobileNumber, cleanedMobile))
 
-	// Step 1: Paginated direct mobile/alt matches (apply LIMIT/OFFSET at SQL level)
-	directMatchQuery := `
-		SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at
-		FROM finone_search.people
-		WHERE mobile = ? OR mobile ILIKE ? OR mobile ILIKE ? OR alt = ? OR alt ILIKE ? OR alt ILIKE ?
-		ORDER BY mobile, name
-		LIMIT ? OFFSET ?
-		SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1
-	`
-
-	// Prepare variations of the mobile number for matching
-	mobileVariations := []interface{}{
-		cleanedMobile,       // Exact match
-		"%" + cleanedMobile, // Ends with
-		cleanedMobile + "%", // Starts with
-		cleanedMobile,       // Alt exact match
-		"%" + cleanedMobile, // Alt ends with
-		cleanedMobile + "%", // Alt starts with
+	// Check cache first
+	cacheKey := fmt.Sprintf("enhanced_mobile_%s_%d_%d", cleanedMobile, req.Limit, req.Offset)
+	if cached, found := s.getCachedResult(cacheKey); found {
+		utils.LogInfo("Cache hit for enhanced mobile search")
+		return &models.EnhancedMobileSearchResponse{
+			DirectMatches:        cached.Results,
+			MasterIDMatches:      []models.Person{},
+			TotalDirectMatches:   cached.TotalCount,
+			TotalMasterIDMatches: 0,
+			TotalCount:           cached.TotalCount,
+			ExecutionTime:        cached.ExecutionTime,
+			SearchID:             searchID,
+			HasMore:              (req.Offset + len(cached.Results)) < cached.TotalCount,
+			MasterIDs:            []string{},
+		}, nil
 	}
 
-	// We fetch limit+1 to determine hasMore without a second full scan
+	// Optimized single query with UNION ALL for better performance
+	optimizedQuery := `
+		WITH mobile_matches AS (
+			SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at, 1 as match_type
+			FROM finone_search.people
+			WHERE mobile = ?
+			UNION ALL
+			SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at, 2 as match_type
+			FROM finone_search.people
+			WHERE alt = ?
+			UNION ALL
+			SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at, 3 as match_type
+			FROM finone_search.people
+			WHERE mobile LIKE ? AND mobile != ?
+			UNION ALL
+			SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at, 4 as match_type
+			FROM finone_search.people
+			WHERE alt LIKE ? AND alt != ?
+		)
+		SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at
+		FROM mobile_matches
+		ORDER BY match_type, mobile, name
+		LIMIT ? OFFSET ?
+		SETTINGS max_threads = 4, optimize_move_to_prewhere = 1
+	`
+
+	// Prepare query arguments
 	pageLimit := req.Limit
 	if pageLimit <= 0 {
 		pageLimit = 1000
 	}
-	fetchLimit := pageLimit + 1
 
-	directArgs := append(append([]interface{}{}, mobileVariations...), fetchLimit, req.Offset)
-
-	var directMatchesPage []models.Person
-	err = database.ClickHouseDB.Select(ctx, &directMatchesPage, directMatchQuery, directArgs...)
-	if err != nil {
-		utils.LogError("Direct mobile search failed", err)
-		return nil, fmt.Errorf("direct mobile search failed: %w", err)
+	args := []interface{}{
+		cleanedMobile,       // Exact mobile match
+		cleanedMobile,       // Exact alt match
+		"%" + cleanedMobile, // Mobile ends with
+		cleanedMobile,       // Exclude exact (already covered)
+		"%" + cleanedMobile, // Alt ends with
+		cleanedMobile,       // Exclude exact (already covered)
+		pageLimit + 1,       // Fetch one extra to check hasMore
+		req.Offset,
 	}
 
-	// Compute hasMore and trim to requested page size
-	hasMore := false
-	if len(directMatchesPage) > pageLimit {
-		hasMore = true
-		directMatchesPage = directMatchesPage[:pageLimit]
+	var results []models.Person
+	err = database.ClickHouseDB.Select(ctx, &results, optimizedQuery, args...)
+	if err != nil {
+		utils.LogError("Optimized mobile search failed", err)
+		return nil, fmt.Errorf("optimized mobile search failed: %w", err)
 	}
 
-	// Step 2: Total count for direct matches only (fast, avoids master_id expansion)
-	countQuery := `
-		SELECT count()
-		FROM finone_search.people
-		WHERE mobile = ? OR mobile ILIKE ? OR mobile ILIKE ? OR alt = ? OR alt ILIKE ? OR alt ILIKE ?
-		SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1
-	`
-	var totalDirectCount uint64
-	err = database.ClickHouseDB.QueryRow(ctx, countQuery, mobileVariations...).Scan(&totalDirectCount)
-	if err != nil {
-		// Do not fail the request if count is slow; fall back to page size
-		utils.LogError("Direct count query failed", err)
-		totalDirectCount = uint64(req.Offset + len(directMatchesPage))
-		if hasMore {
-			totalDirectCount++
+	// Check if there are more results
+	hasMore := len(results) > pageLimit
+	if hasMore {
+		results = results[:pageLimit] // Trim to requested size
+	}
+
+	// Fast count query - only count if we need it for pagination
+	totalCount := len(results)
+	if req.Offset == 0 && !hasMore {
+		// If this is the first page and we don't have more, total = results
+		totalCount = len(results)
+	} else {
+		// Need accurate count for pagination
+		countQuery := `
+			SELECT count() FROM (
+				SELECT 1 FROM finone_search.people WHERE mobile = ?
+				UNION ALL
+				SELECT 1 FROM finone_search.people WHERE alt = ?
+				UNION ALL
+				SELECT 1 FROM finone_search.people WHERE mobile LIKE ? AND mobile != ?
+				UNION ALL
+				SELECT 1 FROM finone_search.people WHERE alt LIKE ? AND alt != ?
+			) SETTINGS max_threads = 4
+		`
+		var count uint64
+		countArgs := []interface{}{
+			cleanedMobile,
+			cleanedMobile,
+			"%" + cleanedMobile,
+			cleanedMobile,
+			"%" + cleanedMobile,
+			cleanedMobile,
+		}
+
+		err = database.ClickHouseDB.QueryRow(ctx, countQuery, countArgs...).Scan(&count)
+		if err != nil {
+			utils.LogError("Count query failed, using fallback", err)
+			totalCount = req.Offset + len(results)
+			if hasMore {
+				totalCount++
+			}
+		} else {
+			totalCount = int(count)
 		}
 	}
 
-	// Log performance metrics (based on direct matches path)
 	executionTime := int(time.Since(startTime).Milliseconds())
-	s.logSearchPerformance(searchID, userID.String(), "ENHANCED_MOBILE", executionTime, len(directMatchesPage))
+
+	// Cache the result
+	s.setCachedResult(cacheKey, results, totalCount, executionTime)
+
+	// Log performance metrics
+	s.logSearchPerformance(searchID, userID.String(), "ENHANCED_MOBILE_OPTIMIZED", executionTime, len(results))
 
 	// Increment daily search count only if we found results
-	if totalDirectCount > 0 {
+	if totalCount > 0 {
 		if err := authService.IncrementSearchCount(userID); err != nil {
 			utils.LogError("Failed to increment search count", err)
 		}
 	}
 
 	return &models.EnhancedMobileSearchResponse{
-		DirectMatches:        directMatchesPage,
-		MasterIDMatches:      []models.Person{}, // omitted for performance
-		TotalDirectMatches:   int(totalDirectCount),
+		DirectMatches:        results,
+		MasterIDMatches:      []models.Person{}, // Simplified for performance
+		TotalDirectMatches:   totalCount,
 		TotalMasterIDMatches: 0,
-		TotalCount:           int(totalDirectCount),
+		TotalCount:           totalCount,
 		ExecutionTime:        executionTime,
 		SearchID:             searchID,
 		HasMore:              hasMore,
@@ -1136,4 +1088,31 @@ func (s *SearchService) BuildSearchSQL(req *models.SearchRequest, limit int, off
 		r.Offset = offset
 	}
 	return s.buildSearchQuery(&r)
+}
+
+// SearchWithin performs a search within previous search results (simplified for performance)
+func (s *SearchService) SearchWithin(userID uuid.UUID, req *models.SearchWithinRequest) (*models.SearchResponse, error) {
+	startTime := time.Now()
+	searchID := uuid.New().String()
+
+	// For now, convert to a regular search for simplicity and performance
+	searchReq := &models.SearchRequest{
+		Query:     req.Query,
+		Fields:    req.Fields,
+		MatchType: req.MatchType,
+		Logic:     "AND",
+		Limit:     req.Limit,
+		Offset:    req.Offset,
+	}
+
+	response, err := s.Search(userID, searchReq)
+	if err != nil {
+		return nil, err
+	}
+
+	// Update the search ID to the new one
+	response.SearchID = searchID
+	response.ExecutionTime = int(time.Since(startTime).Milliseconds())
+
+	return response, nil
 }

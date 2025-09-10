@@ -62,16 +62,20 @@ func tryNativeTLSConnection() (driver.Conn, error) {
 			Password: config.AppConfig.Database.ClickHouse.Password,
 		},
 		Settings: clickhouse.Settings{
-			"max_execution_time":          60,
-			"allow_experimental_analyzer": 1,
-			"optimize_move_to_prewhere":   1,
-			"use_uncompressed_cache":      0,
+			"max_execution_time":                 30, // Reduced from 60 for faster timeout
+			"allow_experimental_analyzer":        1,
+			"optimize_move_to_prewhere":          1,
+			"use_uncompressed_cache":             1,            // Enable cache for better performance
+			"max_threads":                        4,            // Allow parallel processing
+			"max_memory_usage":                   "4000000000", // 4GB memory limit
+			"join_algorithm":                     "hash",
+			"max_bytes_before_external_group_by": "1000000000", // 1GB
 		},
 		Compression:     &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
-		DialTimeout:     time.Duration(30) * time.Second, // Increased timeout for EC2
-		ConnMaxLifetime: time.Duration(30) * time.Minute,
-		MaxIdleConns:    5,
-		MaxOpenConns:    10,
+		DialTimeout:     time.Duration(10) * time.Second, // Reduced timeout
+		ConnMaxLifetime: time.Duration(60) * time.Minute, // Increased lifetime
+		MaxIdleConns:    10,                              // Increased from 5
+		MaxOpenConns:    20,                              // Increased from 10
 	}
 
 	if config.AppConfig.Database.ClickHouse.Secure {
@@ -97,16 +101,20 @@ func tryHTTPSConnection() (driver.Conn, error) {
 			Password: config.AppConfig.Database.ClickHouse.Password,
 		},
 		Settings: clickhouse.Settings{
-			"max_execution_time":          60,
-			"allow_experimental_analyzer": 1,
-			"optimize_move_to_prewhere":   1,
-			"use_uncompressed_cache":      0,
+			"max_execution_time":                 30, // Reduced from 60 for faster timeout
+			"allow_experimental_analyzer":        1,
+			"optimize_move_to_prewhere":          1,
+			"use_uncompressed_cache":             1,            // Enable cache for better performance
+			"max_threads":                        4,            // Allow parallel processing
+			"max_memory_usage":                   "4000000000", // 4GB memory limit
+			"join_algorithm":                     "hash",
+			"max_bytes_before_external_group_by": "1000000000", // 1GB
 		},
 		Compression:     &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
-		DialTimeout:     time.Duration(30) * time.Second,
-		ConnMaxLifetime: time.Duration(30) * time.Minute,
-		MaxIdleConns:    5,
-		MaxOpenConns:    10,
+		DialTimeout:     time.Duration(10) * time.Second, // Reduced timeout
+		ConnMaxLifetime: time.Duration(60) * time.Minute, // Increased lifetime
+		MaxIdleConns:    10,                              // Increased from 5
+		MaxOpenConns:    20,                              // Increased from 10
 		Protocol:        clickhouse.HTTP,
 	}
 
@@ -135,16 +143,20 @@ func tryPlaintextConnection() (driver.Conn, error) {
 			Password: config.AppConfig.Database.ClickHouse.Password,
 		},
 		Settings: clickhouse.Settings{
-			"max_execution_time":          60,
-			"allow_experimental_analyzer": 1,
-			"optimize_move_to_prewhere":   1,
-			"use_uncompressed_cache":      0,
+			"max_execution_time":                 30, // Reduced from 60 for faster timeout
+			"allow_experimental_analyzer":        1,
+			"optimize_move_to_prewhere":          1,
+			"use_uncompressed_cache":             1,            // Enable cache for better performance
+			"max_threads":                        4,            // Allow parallel processing
+			"max_memory_usage":                   "4000000000", // 4GB memory limit
+			"join_algorithm":                     "hash",
+			"max_bytes_before_external_group_by": "1000000000", // 1GB
 		},
 		Compression:     &clickhouse.Compression{Method: clickhouse.CompressionLZ4},
-		DialTimeout:     time.Duration(30) * time.Second,
-		ConnMaxLifetime: time.Duration(30) * time.Minute,
-		MaxIdleConns:    5,
-		MaxOpenConns:    10,
+		DialTimeout:     time.Duration(10) * time.Second, // Reduced timeout
+		ConnMaxLifetime: time.Duration(60) * time.Minute, // Increased lifetime
+		MaxIdleConns:    10,                              // Increased from 5
+		MaxOpenConns:    20,                              // Increased from 10
 	}
 
 	return clickhouse.Open(options)
@@ -177,23 +189,25 @@ func RunClickHouseMigrations() error {
 			pincode String MATERIALIZED arrayFirst(x -> length(x) = 6, extractAll(address, '\\d+')),
 			created_at DateTime DEFAULT now(),
 			updated_at DateTime DEFAULT now(),
-			-- Secondary indexes for accelerating LIKE/ILIKE searches
-			INDEX idx_name_ngram name TYPE ngrambf_v1(3, 256, 2, 0) GRANULARITY 4,
-			INDEX idx_fname_ngram fname TYPE ngrambf_v1(3, 256, 2, 0) GRANULARITY 4,
-			INDEX idx_address_ngram address TYPE ngrambf_v1(3, 256, 2, 0) GRANULARITY 4,
-			INDEX idx_email_token email TYPE tokenbf_v1(1024, 2, 0) GRANULARITY 4,
-			INDEX idx_circle_token circle TYPE tokenbf_v1(1024, 2, 0) GRANULARITY 4,
-			INDEX idx_mobile_token mobile TYPE tokenbf_v1(1024, 2, 0) GRANULARITY 4,
-			INDEX idx_alt_token alt TYPE tokenbf_v1(1024, 2, 0) GRANULARITY 4,
-			INDEX idx_master_id_token master_id TYPE tokenbf_v1(1024, 2, 0) GRANULARITY 4,
+			-- Optimized secondary indexes with better hash parameters
+			INDEX idx_mobile_bf mobile TYPE bloom_filter GRANULARITY 1,
+			INDEX idx_alt_bf alt TYPE bloom_filter GRANULARITY 1,
+			INDEX idx_name_ngram name TYPE ngrambf_v1(3, 1024, 3, 0) GRANULARITY 1,
+			INDEX idx_fname_ngram fname TYPE ngrambf_v1(3, 1024, 3, 0) GRANULARITY 1,
+			INDEX idx_address_ngram address TYPE ngrambf_v1(4, 2048, 3, 0) GRANULARITY 1,
+			INDEX idx_email_token email TYPE tokenbf_v1(2048, 3, 0) GRANULARITY 1,
+			INDEX idx_circle_token circle TYPE tokenbf_v1(1024, 3, 0) GRANULARITY 1,
+			INDEX idx_master_id_token master_id TYPE tokenbf_v1(2048, 3, 0) GRANULARITY 1,
 			-- Bloom filter index for exact pincode matches
-			INDEX idx_pincode_bf pincode TYPE bloom_filter GRANULARITY 4
+			INDEX idx_pincode_bf pincode TYPE bloom_filter GRANULARITY 1
 		)
 		ENGINE = MergeTree()
-		ORDER BY (mobile, name, master_id)
-		SETTINGS index_granularity = 8192,
-		         max_compress_block_size = 1048576,
-		         min_compress_block_size = 65536`,
+		PRIMARY KEY (mobile, name)
+		ORDER BY (mobile, name, master_id, id)
+		SETTINGS index_granularity = 4096,
+		         max_compress_block_size = 2097152,
+		         min_compress_block_size = 131072,
+		         use_minimalistic_part_header_in_zookeeper = 1`,
 
 		// Optional MV (legacy); keep if already present
 		`CREATE MATERIALIZED VIEW IF NOT EXISTS finone_search.people_search_mv
