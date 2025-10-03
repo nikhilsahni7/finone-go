@@ -15,7 +15,7 @@ database:
     host: "chpmx6urtm.ap-south-1.aws.clickhouse.cloud"
     port: 8443
     user: "default"
-    password: "~853.uUOFB4DD"
+    password: "IJm1K~L.1A4Af"
     database: "default"
     use_http: true
     secure: true
