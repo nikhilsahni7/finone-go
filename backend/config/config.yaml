@@ -12,10 +12,10 @@ database:
     dbname: "finome_search"
     sslmode: "disable"
   clickhouse:
-    host: "chpmx6urtm.ap-south-1.aws.clickhouse.cloud"
+    host: "ffccq6qy8t.ap-south-1.aws.clickhouse.cloud"
     port: 8443
     user: "default"
-    password: "IJm1K~L.1A4Af"
+    password: "ddq40wW1~Oi6f"
     database: "default"
     use_http: true
     secure: true

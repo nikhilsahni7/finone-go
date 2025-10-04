@@ -107,9 +107,9 @@ func (cp *CSVProcessor) ProcessCSVFile(filePath string, hasHeader bool) (*models
 			batch = batch[:0] // Clear the batch
 		}
 
-		// Log progress every 50,000 rows
-		if lineCount%50000 == 0 {
-			LogInfo(fmt.Sprintf("Processed %d rows (%.1f%% complete)", lineCount, float64(lineCount)/float64(100602765)*100))
+		// Log progress every 100,000 rows
+		if lineCount%100000 == 0 {
+			LogInfo(fmt.Sprintf("Processed %d rows, imported %d", lineCount, response.ProcessedRows))
 		}
 	}
 
@@ -128,9 +128,11 @@ func (cp *CSVProcessor) ProcessCSVFile(filePath string, hasHeader bool) (*models
 	response.TotalRows = lineCount
 	response.ErrorRows = errorCount
 	response.Status = "completed"
+	duration := endTime.Sub(response.StartTime)
+	rowsPerSecond := float64(response.ProcessedRows) / duration.Seconds()
 
-	LogInfo(fmt.Sprintf("CSV processing completed. Total: %d, Processed: %d, Errors: %d",
-		response.TotalRows, response.ProcessedRows, response.ErrorRows))
+	LogInfo(fmt.Sprintf("CSV processing completed in %v. Total: %d, Processed: %d, Errors: %d, Speed: %.0f rows/sec",
+		duration, response.TotalRows, response.ProcessedRows, response.ErrorRows, rowsPerSecond))
 
 	return response, nil
 }

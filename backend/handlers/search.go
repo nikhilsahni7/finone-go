@@ -193,12 +193,12 @@ func (h *SearchHandler) ImportCSVFromPath(c *gin.Context) {
 		return
 	}
 
-	// Set defaults
+	// Set defaults - optimize for large files
 	if req.BatchSize == 0 {
-		req.BatchSize = 200000 // Use larger batch for big files
+		req.BatchSize = 1000000 // 1 million rows per batch for better performance
 	}
 
-	utils.LogInfo("Starting CSV import from path: " + req.FilePath)
+	utils.LogInfo(fmt.Sprintf("Starting CSV import from path: %s (batch size: %d)", req.FilePath, req.BatchSize))
 
 	// Check if file exists
 	if _, err := os.Stat(req.FilePath); os.IsNotExist(err) {
