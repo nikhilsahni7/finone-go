@@ -207,6 +207,33 @@ func overrideWithEnv(config *Config) {
 		}
 	}
 
+	// PostgreSQL env overrides
+	if v := os.Getenv("POSTGRES_HOST"); v != "" {
+		config.Database.Postgres.Host = v
+	}
+	if v := os.Getenv("POSTGRES_PORT"); v != "" {
+		if p, err := strconv.Atoi(v); err == nil {
+			config.Database.Postgres.Port = p
+		}
+	}
+	if v := os.Getenv("POSTGRES_USER"); v != "" {
+		config.Database.Postgres.User = v
+	}
+	if v := os.Getenv("POSTGRES_PASSWORD"); v != "" {
+		config.Database.Postgres.Password = v
+	}
+	if v := os.Getenv("POSTGRES_DB"); v != "" {
+		config.Database.Postgres.DBName = v
+	}
+	if v := os.Getenv("POSTGRES_SSLMODE"); v != "" {
+		config.Database.Postgres.SSLMode = v
+	}
+
+	// JWT env overrides
+	if v := os.Getenv("JWT_SECRET"); v != "" {
+		config.JWT.Secret = v
+	}
+
 	// OpenSearch env overrides
 	if v := os.Getenv("OPENSEARCH_ENDPOINT"); v != "" {
 		config.OpenSearch.Endpoint = v

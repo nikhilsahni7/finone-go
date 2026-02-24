@@ -8,21 +8,19 @@ database:
     host: "localhost"
     port: 5432
     user: "postgres"
-    password: "rajni.surender1"
+    password: ""
     dbname: "finome_search"
     sslmode: "disable"
-  clickhouse:
-    host: "ffccq6qy8t.ap-south-1.aws.clickhouse.cloud"
-    port: 8443
-    user: "default"
-    password: "ddq40wW1~Oi6f"
-    database: "default"
-    use_http: true
-    secure: true
-    skip_verify: false
+
+opensearch:
+  endpoint: ""
+  index: ""
+  indices: []
+  master_user: ""
+  master_pass: ""
 
 jwt:
-  secret: "your-super-secret-key-change-in-production"
+  secret: "change-me-in-production"
   expiry: 24h
 
 limits:
