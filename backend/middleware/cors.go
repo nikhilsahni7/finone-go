@@ -29,8 +29,8 @@ func CORSMiddleware() gin.HandlerFunc {
 		// If only default is set, add production domains
 		allowedOrigins = append(allowedOrigins,
 
-			"https://finoneweb.nikhilsahni.xyz",
-			"https://finone.nikhilsahni.xyz",
+			"https://www.finone.one",
+			"https://finone.one",
 		)
 	}
 
