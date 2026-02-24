@@ -1,11 +1,11 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-export function middleware(request: NextRequest) {
+export function proxy(request: NextRequest) {
   // Get the pathname of the request (e.g. /, /protected)
   const path = request.nextUrl.pathname;
 
-  // Skip middleware for static assets
+  // Skip for static assets
   if (path.match(/\.(png|jpg|jpeg|gif|svg|css|js|ico|woff|woff2|ttf|eot)$/)) {
     return NextResponse.next();
   }
