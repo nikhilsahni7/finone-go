@@ -1,32 +1,33 @@
 "use client";
 
 import {
-  Calendar,
-  Clock,
-  RefreshCw,
-  Trash2,
-  UserCheck,
-  UserPlus,
-  Users,
-  UserX,
+    Calendar,
+    Clock,
+    RefreshCw,
+    ShieldAlert,
+    Trash2,
+    UserCheck,
+    UserPlus,
+    Users,
+    UserX,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useUsers } from "../hooks/use-users";
 import {
-  CreateUserRequest,
-  UpdateUserRequest,
-  User,
-  UserAnalytics,
+    CreateUserRequest,
+    UpdateUserRequest,
+    User,
+    UserAnalytics,
 } from "../lib/admin-api";
 import CreateUserModal from "./create-user-modal";
 import EditUserModal from "./edit-user-modal";
 import { Button } from "./ui/button";
 import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
+    Card,
+    CardContent,
+    CardDescription,
+    CardHeader,
+    CardTitle,
 } from "./ui/card";
 import UserAnalyticsModal from "./user-analytics-modal";
 import UserTable from "./user-table";
@@ -183,23 +184,25 @@ export default function UserManagement() {
     <div className="space-y-6">
       {/* Alerts */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+        <div className="bg-red-950/50 border border-red-500/30 text-red-400 font-mono text-sm px-4 py-3 rounded-xl shadow-lg">
           {error}
         </div>
       )}
 
       {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded">
+        <div className="bg-emerald-950/50 border border-emerald-500/30 text-emerald-400 font-mono text-sm px-4 py-3 rounded-xl shadow-lg">
           {success}
         </div>
       )}
 
       {/* Header */}
-      <div className="flex justify-between items-center">
+      <div className="flex justify-between items-end border-b border-white/5 pb-4">
         <div>
-          <h3 className="text-lg font-medium text-gray-900">User Management</h3>
-          <p className="text-sm text-gray-500">
-            Manage user accounts, permissions, and daily limits
+          <h3 className="text-xl font-bold font-mono tracking-widest text-white uppercase">
+            Node Operations
+          </h3>
+          <p className="text-xs font-mono tracking-widest uppercase text-zinc-500 mt-1">
+            Manage Identities, Permissions, and Quotas
           </p>
         </div>
         <div className="flex space-x-3">
@@ -208,95 +211,99 @@ export default function UserManagement() {
             size="sm"
             onClick={handleRefresh}
             disabled={loading}
+            className="bg-transparent border-red-500/30 text-red-400 hover:bg-red-500/10 hover:text-red-300 font-mono text-[10px] tracking-widest uppercase h-8 px-3 rounded-lg"
           >
             <RefreshCw
-              className={`h-4 w-4 mr-2 ${loading ? "animate-spin" : ""}`}
+              className={`h-3 w-3 mr-1.5 ${loading ? "animate-spin text-white" : ""}`}
             />
-            Refresh
+            Sync Matrix
           </Button>
-          <Button size="sm" onClick={() => setShowCreateModal(true)}>
-            <UserPlus className="h-4 w-4 mr-2" />
-            Add User
+          <Button size="sm" onClick={() => setShowCreateModal(true)} className="bg-white text-black hover:bg-zinc-200 font-mono text-[10px] tracking-widest uppercase h-8 px-4 rounded-lg">
+            <UserPlus className="h-3 w-3 mr-1.5" />
+            Provision Node
           </Button>
         </div>
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium text-gray-600 flex items-center">
-              <Users className="h-4 w-4 mr-2" />
-              Total Users
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+        <Card className="bg-[#0f0f0f] border-white/10 hover:bg-white/5 transition-colors">
+          <CardHeader className="pb-2 text-zinc-400">
+            <CardTitle className="text-[9px] font-mono uppercase tracking-widest flex items-center text-indigo-400">
+              <Users className="h-3 w-3 mr-1.5" />
+              Total
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">{totalUsers}</div>
+            <div className="text-xl font-bold font-mono text-white">{totalUsers}</div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium text-gray-600 flex items-center">
-              <UserCheck className="h-4 w-4 mr-2" />
+        <Card className="bg-[#0f0f0f] border-white/10 hover:bg-white/5 transition-colors">
+          <CardHeader className="pb-2 text-zinc-400">
+            <CardTitle className="text-[9px] font-mono uppercase tracking-widest flex items-center text-emerald-400">
+              <UserCheck className="h-3 w-3 mr-1.5" />
               Active
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-green-600">
+            <div className="text-xl font-bold font-mono text-white">
               {activeUsers}
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium text-gray-600 flex items-center">
-              <UserX className="h-4 w-4 mr-2" />
-              Inactive
+        <Card className="bg-[#0f0f0f] border-white/10 hover:bg-white/5 transition-colors">
+          <CardHeader className="pb-2 text-zinc-400">
+            <CardTitle className="text-[9px] font-mono uppercase tracking-widest flex items-center text-red-500">
+              <UserX className="h-3 w-3 mr-1.5" />
+              Suspended
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">
+            <div className="text-xl font-bold font-mono text-zinc-500">
               {inactiveUsers}
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium text-gray-600">
-              Admins
+        <Card className="bg-[#0f0f0f] border-white/10 hover:bg-white/5 transition-colors">
+          <CardHeader className="pb-2 text-zinc-400">
+            <CardTitle className="text-[9px] font-mono uppercase tracking-widest flex items-center text-purple-400">
+              <ShieldAlert className="h-3 w-3 mr-1.5" />
+              Root
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-purple-600">
+            <div className="text-xl font-bold font-mono text-white">
               {adminUsers}
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium text-gray-600">
-              Demo Users
+        <Card className="bg-[#0f0f0f] border-white/10 hover:bg-white/5 transition-colors">
+          <CardHeader className="pb-2 text-zinc-400">
+            <CardTitle className="text-[9px] font-mono uppercase tracking-widest flex items-center text-amber-400">
+              <Clock className="h-3 w-3 mr-1.5" />
+              Demo
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-yellow-600">
+            <div className="text-xl font-bold font-mono text-white">
               {demoUsers}
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium text-gray-600">
-              Expired
+        <Card className="bg-[#0f0f0f] border-white/10 hover:bg-white/5 transition-colors">
+          <CardHeader className="pb-2 text-zinc-400">
+            <CardTitle className="text-[9px] font-mono uppercase tracking-widest flex items-center text-orange-500">
+              <Trash2 className="h-3 w-3 mr-1.5" />
+              Lapsed
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-orange-600">
+            <div className="text-xl font-bold font-mono text-zinc-500">
               {expiredUsers}
             </div>
           </CardContent>
@@ -304,49 +311,50 @@ export default function UserManagement() {
       </div>
 
       {/* System Controls */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center">
-            <Calendar className="h-5 w-5 mr-2" />
-            System Controls
+      <Card className="bg-[#0f0f0f] border-white/10">
+        <CardHeader className="border-b border-white/5 bg-black/20">
+          <CardTitle className="flex items-center text-sm font-mono tracking-widest uppercase text-white">
+            <Calendar className="h-4 w-4 mr-2 text-cyan-500" />
+            Global Overrides
           </CardTitle>
-          <CardDescription>
-            Manage daily search limits and system-wide settings
-          </CardDescription>
         </CardHeader>
-        <CardContent>
-          <div className="flex items-center justify-between">
+        <CardContent className="py-4">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
-              <div className="flex items-center text-sm text-gray-600">
-                <Clock className="h-4 w-4 mr-2" />
-                Next automatic reset: {nextResetTime}
+              <div className="flex items-center text-xs font-mono tracking-widest uppercase text-zinc-400">
+                <Clock className="h-3.5 w-3.5 mr-2 text-cyan-500" />
+                Network Quota Reset T-Minus: <span className="ml-2 text-white font-bold">{nextResetTime || "PENDING"}</span>
               </div>
             </div>
             <Button
               variant="outline"
               onClick={handleResetSearchCounts}
               disabled={loading}
+              className="bg-red-600/10 border-red-500/30 text-red-500 hover:bg-red-500 hover:text-white font-mono text-[10px] uppercase tracking-widest h-8 px-4 rounded"
             >
-              Reset Daily Counts
+              Force Quota Reset
             </Button>
           </div>
         </CardContent>
       </Card>
 
       {/* User Table */}
-      <Card>
-        <CardHeader>
+      <Card className="bg-[#0f0f0f] border-white/10 overflow-hidden">
+        <CardHeader className="border-b border-white/5 bg-black/20 pb-4">
           <div className="flex justify-between items-center">
             <div>
-              <CardTitle>Users</CardTitle>
-              <CardDescription>
+              <CardTitle className="text-sm font-mono tracking-widest uppercase text-white flex items-center">
+                <Users className="w-4 h-4 mr-2 text-indigo-400" />
+                Identity Directory
+              </CardTitle>
+              <CardDescription className="text-[10px] font-mono tracking-widest uppercase text-zinc-500 mt-1.5">
                 {totalUsers > 0 &&
-                  `Showing ${users.length} of ${totalUsers} users`}
+                  `PAGINATION: ${users.length} OF ${totalUsers} NODES`}
               </CardDescription>
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           <UserTable
             users={users}
             analytics={analytics}
@@ -359,10 +367,10 @@ export default function UserManagement() {
 
           {/* Pagination */}
           {userList && userList.total_count > 20 && (
-            <div className="flex justify-between items-center mt-6">
-              <div className="text-sm text-gray-700">
-                Page {userList.page} of{" "}
-                {Math.ceil(userList.total_count / userList.limit)}
+            <div className="flex justify-between items-center p-6 border-t border-white/5 bg-black/20">
+              <div className="text-[10px] font-mono tracking-widest uppercase text-zinc-500">
+                Page <span className="text-white">{userList.page}</span> of{" "}
+                <span className="text-white">{Math.ceil(userList.total_count / userList.limit)}</span>
               </div>
               <div className="flex space-x-2">
                 <Button

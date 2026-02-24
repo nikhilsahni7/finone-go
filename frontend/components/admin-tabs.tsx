@@ -21,16 +21,16 @@ export default function AdminTabs({ tabs, defaultTab }: AdminTabsProps) {
   return (
     <div className="w-full">
       {/* Tab Navigation */}
-      <div className="border-b border-gray-200">
-        <nav className="-mb-px flex space-x-8" aria-label="Tabs">
+      <div className="border-b border-white/10 relative">
+        <nav className="-mb-px flex space-x-8 overflow-x-auto custom-scrollbar" aria-label="Tabs">
           {tabs.map((tab) => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`whitespace-nowrap py-2 px-1 border-b-2 font-medium text-sm ${
+              className={`whitespace-nowrap py-4 px-1 border-b-2 font-mono text-xs uppercase tracking-widest transition-colors ${
                 activeTab === tab.id
-                  ? "border-blue-500 text-blue-600"
-                  : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                  ? "border-red-500 text-red-500"
+                  : "border-transparent text-zinc-500 hover:text-zinc-300 hover:border-white/20"
               }`}
             >
               {tab.label}
@@ -40,7 +40,7 @@ export default function AdminTabs({ tabs, defaultTab }: AdminTabsProps) {
       </div>
 
       {/* Tab Content */}
-      <div className="mt-6">{activeTabContent}</div>
+      <div className="mt-8 animate-in fade-in slide-in-from-bottom-2 duration-500">{activeTabContent}</div>
     </div>
   );
 }

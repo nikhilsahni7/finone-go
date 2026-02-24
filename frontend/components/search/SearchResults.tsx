@@ -3,11 +3,10 @@
 import { Button } from "@/components/ui/button";
 import { CardTitle } from "@/components/ui/card";
 import {
-  ChevronRight,
-  Copy,
-  Download,
-  Loader2,
-  Search as SearchIcon,
+    ChevronRight,
+    Copy,
+    Download,
+    Search as SearchIcon
 } from "lucide-react";
 
 export interface SearchResultItem {
@@ -54,34 +53,33 @@ export default function SearchResults({
   const searchTerms = getSearchTerms();
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg shadow-sm p-4">
-      <div className="pb-4">
+    <div className="bg-[#0f0f0f] border border-white/10 rounded-xl shadow-lg p-6">
+      <div className="pb-6 border-b border-white/5 mb-6">
         <div className="flex items-center justify-between">
           <div>
-            <CardTitle className="text-lg flex items-center text-gray-900">
-              <SearchIcon className="w-5 h-5 text-blue-600 mr-2" />
-              Search Results
+            <CardTitle className="text-xl flex items-center text-white tracking-tight">
+              <SearchIcon className="w-5 h-5 text-indigo-400 mr-3" />
+              QUERY OUTPUT
             </CardTitle>
             {searchResults.length > 0 ? (
-              <div className="flex items-center space-x-3 mt-2">
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-800">
-                  {totalResults.toLocaleString()} results
+              <div className="flex items-center space-x-3 mt-3">
+                <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-mono tracking-widest bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                  {totalResults.toLocaleString()} MATCHES
                 </span>
-                <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-mono tracking-widest bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                   {executionTime}ms
                 </span>
-                <span className="text-sm text-gray-600">
-                  Showing {searchResults.length} of{" "}
-                  {totalResults.toLocaleString()}
+                <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest">
+                  Displaying {searchResults.length} of {totalResults.toLocaleString()}
                 </span>
               </div>
             ) : (
               searchMessage && (
-                <div className="flex items-center space-x-3 mt-2">
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-800">
-                    0 results
+                <div className="flex items-center space-x-3 mt-3">
+                  <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-mono tracking-widest bg-zinc-800 text-zinc-400 border border-white/10">
+                    0 MATCHES
                   </span>
-                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                  <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-mono tracking-widest bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">
                     {executionTime}ms
                   </span>
                 </div>
@@ -94,10 +92,10 @@ export default function SearchResults({
                 variant="outline"
                 size="sm"
                 onClick={onExport}
-                className="text-green-600 border-green-600 hover:bg-green-50"
+                className="text-emerald-400 border-emerald-500/30 bg-emerald-500/10 hover:bg-emerald-500/20 hover:text-emerald-300 font-mono text-xs tracking-widest uppercase transition-colors"
               >
                 <Download className="w-4 h-4 mr-2" />
-                Export
+                DUMP DATA
               </Button>
             )}
           </div>
@@ -106,14 +104,16 @@ export default function SearchResults({
 
       {/* No Results Message */}
       {searchMessage && searchResults.length === 0 && (
-        <div className="text-center py-8">
-          <div className="bg-gray-50 rounded-lg p-6 border border-gray-200">
-            <div className="flex flex-col items-center space-y-3">
-              <SearchIcon className="w-12 h-12 text-gray-400" />
-              <h3 className="text-lg font-medium text-gray-900">
-                No Results Found
+        <div className="text-center py-12">
+          <div className="bg-white/5 rounded-xl p-8 border border-white/10 max-w-md mx-auto">
+            <div className="flex flex-col items-center space-y-4">
+              <div className="p-4 bg-zinc-900 rounded-full border border-white/5 shadow-inner">
+                <SearchIcon className="w-8 h-8 text-zinc-600" />
+              </div>
+              <h3 className="text-sm font-mono tracking-widest uppercase text-white">
+                No Nodes Found
               </h3>
-              <p className="text-gray-600 text-center max-w-md">
+              <p className="text-xs text-zinc-500 text-center uppercase tracking-widest font-mono">
                 {searchMessage}
               </p>
             </div>
@@ -123,55 +123,58 @@ export default function SearchResults({
 
       {/* Results List */}
       {searchResults.length > 0 && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {searchResults.map((result, index) => (
             <div
               key={result.id || index}
-              className="bg-white border border-gray-200 rounded-lg p-4 hover:shadow-md transition-all duration-200"
+              className="bg-white/5 border border-white/10 rounded-xl p-5 hover:bg-white/10 transition-all duration-300 group relative overflow-hidden"
             >
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-gray-900 text-lg">
+              {/* Highlight bar */}
+              <div className="absolute left-0 top-0 bottom-0 w-1 bg-indigo-500/50 transform scale-y-0 group-hover:scale-y-100 transition-transform origin-top" />
+
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-lg font-bold text-white tracking-wide">
                   <span
                     dangerouslySetInnerHTML={{
                       __html: highlight(result.name, searchTerms),
                     }}
                   />
                 </h3>
-                <div className="flex items-center space-x-2">
-                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-gray-100 text-gray-600">
-                    #{index + 1}
+                <div className="flex items-center space-x-3">
+                  <span className="inline-flex items-center px-2 py-1 rounded text-[10px] font-mono font-medium bg-black/50 border border-white/5 text-zinc-500">
+                    INDEX_{index + 1}
                   </span>
                   <Button
                     variant="outline"
                     size="sm"
                     onClick={() => onCopy(result)}
-                    className="text-blue-600 border-blue-600 hover:bg-blue-50"
+                    className="text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/20 bg-transparent h-7 px-3 text-[10px] font-mono uppercase tracking-widest"
                   >
-                    <Copy className="w-3 h-3 mr-1" />
+                    <Copy className="w-3 h-3 mr-1.5" />
                     Copy
                   </Button>
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-3">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
+                <div className="space-y-4">
                   {result.mobile && (
-                    <div className="flex items-start">
-                      <span className="text-gray-500 font-medium text-sm w-24">
-                        Mobile:
+                    <div className="flex flex-col space-y-1">
+                      <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest">
+                        Mobile Uplink
                       </span>
-                      <span className="text-blue-600 font-medium text-sm">
+                      <span className="text-indigo-300 font-mono text-sm">
                         {result.mobile}
                       </span>
                     </div>
                   )}
 
-                  <div className="flex items-start">
-                    <span className="text-gray-500 font-medium text-sm w-24">
-                      Father Name:
+                  <div className="flex flex-col space-y-1">
+                    <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest">
+                      Father Name
                     </span>
                     <span
-                      className="text-gray-700 text-sm"
+                      className="text-zinc-300 text-sm"
                       dangerouslySetInnerHTML={{
                         __html: highlight(result.fname, searchTerms),
                       }}
@@ -179,12 +182,12 @@ export default function SearchResults({
                   </div>
 
                   {result.email && (
-                    <div className="flex items-start">
-                      <span className="text-gray-500 font-medium text-sm w-24">
-                        Email:
+                    <div className="flex flex-col space-y-1">
+                      <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest">
+                        Network Address
                       </span>
                       <span
-                        className="text-gray-700 text-sm"
+                        className="text-zinc-300 text-sm"
                         dangerouslySetInnerHTML={{
                           __html: highlight(result.email!, searchTerms),
                         }}
@@ -193,12 +196,12 @@ export default function SearchResults({
                   )}
 
                   {result.master_id && (
-                    <div className="flex items-start">
-                      <span className="text-gray-500 font-medium text-sm w-24">
-                        Master ID:
+                    <div className="flex flex-col space-y-1">
+                      <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest">
+                        Master Identifier
                       </span>
                       <span
-                        className="text-gray-700 text-sm"
+                        className="text-emerald-400/90 font-mono text-sm"
                         dangerouslySetInnerHTML={{
                           __html: highlight(result.master_id!, searchTerms),
                         }}
@@ -207,13 +210,13 @@ export default function SearchResults({
                   )}
                 </div>
 
-                <div className="space-y-3">
-                  <div className="flex items-start">
-                    <span className="text-gray-500 font-medium text-sm w-24">
-                      Address:
+                <div className="space-y-4">
+                  <div className="flex flex-col space-y-1">
+                    <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest">
+                      Physical Coordinates
                     </span>
                     <span
-                      className="text-gray-700 text-sm"
+                      className="text-zinc-300 text-sm leading-relaxed"
                       dangerouslySetInnerHTML={{
                         __html: highlight(result.address, searchTerms),
                       }}
@@ -221,12 +224,12 @@ export default function SearchResults({
                   </div>
 
                   {result.alt && (
-                    <div className="flex items-start">
-                      <span className="text-gray-500 font-medium text-sm w-24">
-                        Alternate:
+                    <div className="flex flex-col space-y-1">
+                      <span className="text-[10px] text-zinc-500 font-mono uppercase tracking-widest">
+                        Alternate Uplink
                       </span>
                       <span
-                        className="text-gray-700 text-sm"
+                        className="text-zinc-400 text-sm font-mono"
                         dangerouslySetInnerHTML={{
                           __html: highlight(result.alt!, searchTerms),
                         }}
@@ -242,21 +245,22 @@ export default function SearchResults({
 
       {/* Load More */}
       {hasMore && searchResults.length > 0 && (
-        <div className="mt-6 text-center">
+        <div className="mt-8 text-center pt-4 border-t border-white/5">
           <Button
             onClick={onLoadMore}
             disabled={isLoading}
-            className="bg-purple-600 hover:bg-purple-700"
+            variant="outline"
+            className="bg-transparent border-indigo-500/50 text-indigo-400 hover:bg-indigo-500/10 hover:text-indigo-300 font-mono text-xs tracking-widest uppercase px-8 h-12 rounded-xl transition-all"
           >
             {isLoading ? (
               <div className="flex items-center">
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Loading...
+                <span className="flex h-2 w-2 rounded-full bg-indigo-400 animate-ping mr-3" />
+                Querying further nodes...
               </div>
             ) : (
               <>
-                <ChevronRight className="w-4 h-4 mr-2" />
-                Load More Results
+                Extend Results Scope
+                <ChevronRight className="w-4 h-4 ml-2" />
               </>
             )}
           </Button>

@@ -44,184 +44,157 @@ export default function SearchForm({
           // Let native form submit handle it
         }
       }}
-      className="space-y-6 mb-6"
+      className="space-y-6 mb-8"
     >
       {/* Search Logic */}
-      <div className="flex items-center space-x-3 p-4 bg-gray-50 rounded-lg">
-        <span className="text-sm font-medium text-gray-700">Search Logic:</span>
+      <div className="flex items-center space-x-4 p-4 bg-white/5 border border-white/10 backdrop-blur-md rounded-xl">
+        <span className="text-[10px] font-mono uppercase tracking-widest text-zinc-400">Search Logic:</span>
         <select
           value={searchLogic}
           onChange={(e) => onChangeLogic(e.target.value as "AND" | "OR")}
-          className="border border-gray-300 rounded-md px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          className="border border-white/10 bg-black/60 text-white rounded-md px-3 py-1.5 text-xs font-mono focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
         >
-          <option value="AND">AND</option>
-          <option value="OR">OR</option>
+          <option value="AND">AND (PRECISE)</option>
+          <option value="OR">OR (BROAD)</option>
         </select>
-        <span className="text-sm text-gray-600">
+        <span className="text-[10px] font-mono text-zinc-500 uppercase tracking-widest hidden sm:inline-block border-l border-white/10 pl-4">
           {searchLogic === "AND"
-            ? "All filled fields must match (precise search)"
-            : "Any field can match (broader search)"}
+            ? "ALL FILLED FIELDS MUST MATCH"
+            : "ANY SINGLE FIELD ALLOWED TO MATCH"}
         </span>
       </div>
 
       {/* Search Fields */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5">
         <div className="space-y-2">
-          <Label
-            htmlFor="masterId"
-            className="text-sm font-medium text-gray-700"
-          >
+          <Label htmlFor="masterId" className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 ml-1">
             Master ID
           </Label>
           <Input
             id="masterId"
-            placeholder="Enter Master ID"
+            placeholder="UUID / MASTER ID"
             value={searchCriteria.masterId}
             onChange={(e) => onChange("masterId", e.target.value)}
-            className="focus:ring-2 focus:ring-blue-500"
+            className="bg-black/40 border-white/10 text-white placeholder:text-zinc-600 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-xs rounded-lg h-10"
           />
         </div>
 
         <div className="space-y-2">
-          <Label
-            htmlFor="customerName"
-            className="text-sm font-medium text-gray-700"
-          >
+          <Label htmlFor="customerName" className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 ml-1">
             Customer Name
           </Label>
           <Input
             id="customerName"
-            placeholder="Enter customer name"
+            placeholder="FULL NAME"
             value={searchCriteria.customerName}
             onChange={(e) => onChange("customerName", e.target.value)}
-            className="focus:ring-2 focus:ring-blue-500"
+            className="bg-black/40 border-white/10 text-white placeholder:text-zinc-600 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-xs rounded-lg h-10"
           />
         </div>
 
         <div className="space-y-2">
-          <Label
-            htmlFor="fatherName"
-            className="text-sm font-medium text-gray-700"
-          >
+          <Label htmlFor="fatherName" className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 ml-1">
             Father Name
           </Label>
           <Input
             id="fatherName"
-            placeholder="Enter father's name"
+            placeholder="FATHER'S NAME"
             value={searchCriteria.fatherName}
             onChange={(e) => onChange("fatherName", e.target.value)}
-            className="focus:ring-2 focus:ring-blue-500"
+            className="bg-black/40 border-white/10 text-white placeholder:text-zinc-600 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-xs rounded-lg h-10"
           />
         </div>
 
         <div className="space-y-2">
-          <Label
-            htmlFor="mobileNumber"
-            className="text-sm font-medium text-gray-700"
-          >
+          <Label htmlFor="mobileNumber" className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 ml-1">
             Mobile Number
           </Label>
           <Input
             id="mobileNumber"
-            placeholder="Enter mobile number"
+            placeholder="+91 NUMBER"
             value={searchCriteria.mobileNumber}
             onChange={(e) => onChange("mobileNumber", e.target.value)}
-            className="focus:ring-2 focus:ring-blue-500"
+            className="bg-black/40 border-white/10 text-white placeholder:text-zinc-600 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-xs rounded-lg h-10"
           />
         </div>
 
         <div className="space-y-2">
-          <Label
-            htmlFor="alternateNumber"
-            className="text-sm font-medium text-gray-700"
-          >
+          <Label htmlFor="alternateNumber" className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 ml-1">
             Alternate Number
           </Label>
           <Input
             id="alternateNumber"
-            placeholder="Enter alternate number"
+            placeholder="SECONDARY NUMBER"
             value={searchCriteria.alternateNumber}
             onChange={(e) => onChange("alternateNumber", e.target.value)}
-            className="focus:ring-2 focus:ring-blue-500"
+            className="bg-black/40 border-white/10 text-white placeholder:text-zinc-600 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-xs rounded-lg h-10"
           />
         </div>
 
         <div className="space-y-2">
-          <Label
-            htmlFor="emailAddress"
-            className="text-sm font-medium text-gray-700"
-          >
+          <Label htmlFor="emailAddress" className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 ml-1">
             Email Address
           </Label>
           <Input
             id="emailAddress"
-            placeholder="Enter email address"
+            placeholder="EMAIL@DOMAIN.COM"
             value={searchCriteria.emailAddress}
             onChange={(e) => onChange("emailAddress", e.target.value)}
-            className="focus:ring-2 focus:ring-blue-500"
+            className="bg-black/40 border-white/10 text-white placeholder:text-zinc-600 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-xs rounded-lg h-10"
           />
         </div>
 
         <div className="space-y-2">
-          <Label
-            htmlFor="address"
-            className="text-sm font-medium text-gray-700"
-          >
+          <Label htmlFor="address" className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 ml-1">
             Address
           </Label>
           <Input
             id="address"
-            placeholder="Enter address or location"
+            placeholder="STREET/CITY/STATE"
             value={searchCriteria.address}
             onChange={(e) => onChange("address", e.target.value)}
-            className="focus:ring-2 focus:ring-blue-500"
+            className="bg-black/40 border-white/10 text-white placeholder:text-zinc-600 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-xs rounded-lg h-10"
           />
         </div>
 
         <div className="space-y-2">
-          <Label
-            htmlFor="pincode"
-            className="text-sm font-medium text-gray-700"
-          >
+          <Label htmlFor="pincode" className="text-[10px] font-mono uppercase tracking-widest text-zinc-400 ml-1">
             Pincode
           </Label>
           <Input
             id="pincode"
-            placeholder="Enter 6-digit pincode"
+            placeholder="6-DIGIT CODE"
             value={searchCriteria.pincode}
             onChange={(e) => onChange("pincode", e.target.value)}
-            className="focus:ring-2 focus:ring-blue-500"
+            className="bg-black/40 border-white/10 text-white placeholder:text-zinc-600 focus:ring-1 focus:ring-indigo-500 focus:border-indigo-500 font-mono text-xs rounded-lg h-10"
           />
         </div>
       </div>
 
-      <div className="flex items-center justify-between text-xs text-gray-600">
-        <span>Tip: Press Enter to search</span>
-        <span>Shift+Enter searches within current results</span>
+      <div className="flex items-center justify-between text-[10px] font-mono text-zinc-500 uppercase tracking-widest px-2">
+        <span>&gt; ENTER_TO_EXECUTE_QUERY</span>
+        <span className="hidden sm:inline-block">&gt; SHIFT+ENTER_TO_FILTER_RESULTS</span>
       </div>
 
       <Button
         type="submit"
-        className="w-full bg-purple-600 hover:bg-purple-700 text-white py-3 text-lg font-medium transition-colors"
+        className="w-full bg-indigo-600 hover:bg-indigo-500 text-white h-14 mt-4 text-sm font-bold tracking-widest uppercase transition-all shadow-[0_0_20px_rgba(79,70,229,0.2)] hover:shadow-[0_0_30px_rgba(79,70,229,0.4)] border border-indigo-500/50 rounded-xl"
         disabled={isLoading || remainingSearches <= 0}
       >
         {isLoading ? (
-          <div className="flex items-center">
-            <svg
-              className="animate-spin h-5 w-5 mr-2 inline-block"
-              viewBox="0 0 24 24"
-            />
-            Searching...
+          <div className="flex items-center space-x-3">
+            <span className="flex h-2 w-2 rounded-full bg-white animate-ping" />
+            <span>Processing Query...</span>
           </div>
         ) : remainingSearches <= 0 ? (
           <>
-            <AlertCircle className="w-5 h-5 mr-2" />
-            Daily Limit Reached
+            <AlertCircle className="w-5 h-5 mr-3" />
+            Quota Exceeded
           </>
         ) : (
           <>
-            <SearchIcon className="w-5 h-5 mr-2" />
-            Search ({remainingSearches} remaining)
+            <SearchIcon className="w-5 h-5 mr-3" />
+            Execute Search [{remainingSearches} REMAINING]
           </>
         )}
       </Button>

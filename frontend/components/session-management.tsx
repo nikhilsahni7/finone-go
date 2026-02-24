@@ -1,16 +1,11 @@
 "use client";
 
+import { Activity, Clock, RefreshCw, ShieldAlert, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useSessions } from "../hooks/use-sessions";
 import SessionTable from "./session-table";
 import { Button } from "./ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "./ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card";
 
 export default function SessionManagement() {
   const {
@@ -91,28 +86,32 @@ export default function SessionManagement() {
   }, [error, clearError]);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       {/* Alerts */}
       {error && (
-        <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
+        <div className="bg-red-950/50 border border-red-500/30 text-red-400 font-mono text-sm px-4 py-3 rounded-xl shadow-lg">
           {error}
         </div>
       )}
 
       {success && (
-        <div className="bg-green-50 border border-green-200 text-green-700 px-4 py-3 rounded">
+        <div className="bg-emerald-950/50 border border-emerald-500/30 text-emerald-400 font-mono text-sm px-4 py-3 rounded-xl shadow-lg">
           {success}
         </div>
       )}
 
       {/* Session Management */}
-      <Card>
-        <CardHeader>
-          <div className="flex justify-between items-center">
+      <Card className="bg-[#0f0f0f] border-white/10 overflow-hidden relative">
+        <div className="absolute top-0 left-0 right-0 h-[1px] bg-gradient-to-r from-transparent via-red-500/20 to-transparent" />
+        <CardHeader className="border-b border-white/5 bg-black/20">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4">
             <div>
-              <CardTitle>Active Sessions</CardTitle>
-              <CardDescription>
-                Manage active user sessions across the system
+              <CardTitle className="text-sm font-mono tracking-widest uppercase text-white flex items-center">
+                <ShieldAlert className="w-4 h-4 mr-2 text-red-500" />
+                Active Node Sessions
+              </CardTitle>
+              <CardDescription className="text-xs font-mono tracking-widest text-zinc-500 mt-1 uppercase">
+                Manage live authentication tokens across the system
               </CardDescription>
             </div>
             <div className="flex gap-2">
@@ -121,22 +120,24 @@ export default function SessionManagement() {
                 variant="outline"
                 disabled={loading}
                 size="sm"
+                className="bg-transparent border-white/10 text-zinc-400 hover:bg-white/5 hover:text-white font-mono text-[9px] uppercase tracking-widest h-8 px-3 rounded"
               >
-                {loading ? "Refreshing..." : "Refresh"}
+                <RefreshCw className={`w-3 h-3 mr-1.5 ${loading ? "animate-spin text-white" : ""}`} />
+                {loading ? "SYNCING..." : "SYNC"}
               </Button>
               <Button
                 onClick={handleCleanupExpiredSessions}
                 disabled={actionLoading === "cleanup"}
                 size="sm"
+                className="bg-red-600 hover:bg-red-500 text-white font-mono text-[9px] uppercase tracking-widest h-8 px-3 rounded shadow-[0_0_15px_rgba(239,68,68,0.2)] border-transparent"
               >
-                {actionLoading === "cleanup"
-                  ? "Cleaning..."
-                  : "Cleanup Expired"}
+                <Trash2 className="w-3 h-3 mr-1.5" />
+                {actionLoading === "cleanup" ? "PURGING..." : "PURGE EXPIRED"}
               </Button>
             </div>
           </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="p-0">
           <SessionTable
             sessions={sessions}
             onInvalidateUserSessions={handleInvalidateUserSessions}
@@ -147,41 +148,45 @@ export default function SessionManagement() {
       </Card>
 
       {/* Statistics */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium text-gray-600">
-              Total Sessions
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <Card className="bg-[#0f0f0f] border-white/10 hover:bg-white/5 transition-colors">
+          <CardHeader className="pb-2 text-zinc-400">
+            <CardTitle className="text-[10px] font-mono uppercase tracking-widest flex items-center">
+              <Activity className="h-3.5 w-3.5 mr-2 text-indigo-400" />
+              Total Sessions Generated
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-blue-600">
+            <div className="text-2xl font-bold font-mono text-white">
               {sessions.length}
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium text-gray-600">
-              Active Sessions
+        <Card className="bg-[#0f0f0f] border-white/10 hover:bg-white/5 transition-colors relative overflow-hidden">
+          <div className="absolute inset-0 bg-emerald-500/5 pointer-events-none" />
+          <CardHeader className="pb-2 text-zinc-400 relative z-10">
+            <CardTitle className="text-[10px] font-mono uppercase tracking-widest flex items-center text-emerald-400">
+              <span className="flex h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse mr-2" />
+              Live Connections
             </CardTitle>
           </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold text-green-600">
+          <CardContent className="relative z-10">
+            <div className="text-2xl font-bold font-mono text-emerald-400 drop-shadow-[0_0_8px_rgba(16,185,129,0.5)]">
               {activeSessions.length}
             </div>
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="text-base font-medium text-gray-600">
-              Expired Sessions
+        <Card className="bg-[#0f0f0f] border-white/10 hover:bg-white/5 transition-colors">
+          <CardHeader className="pb-2 text-zinc-400">
+            <CardTitle className="text-[10px] font-mono uppercase tracking-widest flex items-center">
+              <Clock className="h-3.5 w-3.5 mr-2 text-red-400" />
+              Expired Tokens
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold text-red-600">
+            <div className="text-2xl font-bold font-mono text-white">
               {expiredSessions.length}
             </div>
           </CardContent>

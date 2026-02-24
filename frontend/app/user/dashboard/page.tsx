@@ -23,13 +23,13 @@ import SearchWithin from "@/components/search/SearchWithin";
 import {
   AlertCircle,
   Clock,
+  Database,
   Key,
   LogOut,
   RefreshCw,
   TrendingUp,
   User as UserIcon,
 } from "lucide-react";
-import Image from "next/image";
 import { useEffect, useRef, useState } from "react";
 
 interface SearchResult {
@@ -640,14 +640,14 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
 
   if (isInitializing) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-[#030303] flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600 mx-auto mb-4"></div>
-          <h2 className="text-xl font-semibold text-gray-700 mb-2">
-            Loading Dashboard
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mx-auto mb-4 tracking-tighter shadow-[0_0_15px_rgba(79,70,229,0.5)]"></div>
+          <h2 className="text-xl font-mono text-zinc-300 mb-2">
+            INITIALIZING SECURE TERMINAL
           </h2>
-          <p className="text-gray-500">
-            Please wait while we fetch your data...
+          <p className="text-sm text-zinc-600 font-mono">
+            Establishing encrypted connection...
           </p>
         </div>
       </div>
@@ -656,13 +656,13 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
 
   if (!currentUser) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-[#030303] flex items-center justify-center">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto mb-4"></div>
-          <h2 className="text-xl font-semibold text-gray-700 mb-2">
-            Authentication Required
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-500 mx-auto mb-4 shadow-[0_0_15px_rgba(239,68,68,0.5)]"></div>
+          <h2 className="text-xl font-mono text-red-400 mb-2">
+            AUTHENTICATION REQUIRED
           </h2>
-          <p className="text-gray-500">Redirecting to login...</p>
+          <p className="text-sm text-zinc-600 font-mono">Redirecting to secure login node...</p>
         </div>
       </div>
     );
@@ -682,53 +682,49 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
 
   return (
     <ProtectedRoute>
-      <div className="min-h-screen bg-gradient-to-b from-gray-50 to-white">
+      <div className="min-h-screen bg-[#030303] text-zinc-200 selection:bg-indigo-500/30 font-sans">
         {/* Header */}
-        <div className="bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60 border-b border-gray-200 px-6 py-4 sticky top-0 z-40">
+        <div className="bg-[#030303]/90 backdrop-blur-md border-b border-white/10 px-6 py-4 sticky top-0 z-40">
           <div className="max-w-screen-2xl mx-auto flex items-center justify-between">
             <div className="flex items-center space-x-4">
-              <Image
-                src="/logo-final.png"
-                alt="FinnOne"
-                width={120}
-                height={35}
-              />
+              <div className="relative flex items-center justify-center w-8 h-8 rounded-lg bg-gradient-to-br from-zinc-800 to-zinc-950 border border-white/10 shadow-[0_0_10px_rgba(79,70,229,0.3)]">
+                <Database className="h-4 w-4 text-indigo-400" />
+              </div>
               <div>
-                <h1 className="text-xl font-semibold text-gray-900">
-                  Customer Search
+                <h1 className="text-lg font-bold text-white tracking-tight">
+                  INTELLIGENCE TERMINAL
                 </h1>
-                <p className="text-sm text-gray-600">
-                  Welcome back, {user.name}
+                <p className="text-xs text-zinc-400 font-mono uppercase tracking-widest">
+                  AUTHORIZATION: {user.name}
                 </p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
-              <div className="hidden sm:flex items-center space-x-2 bg-gray-100 px-3 py-2 rounded-lg">
-                <span className="text-xs text-gray-600">Daily Usage</span>
-                <span className="text-sm font-semibold text-gray-900">
-                  {userAnalytics?.today_searches || 0}/
-                  {user.max_searches_per_day}
+              <div className="hidden sm:flex items-center space-x-2 bg-white/5 border border-white/10 px-3 py-1.5 rounded-lg">
+                <span className="text-[10px] uppercase tracking-widest text-zinc-500 font-mono">Comms Quota</span>
+                <span className="text-xs font-mono text-indigo-400">
+                  {userAnalytics?.today_searches || 0}/{user.max_searches_per_day}
                 </span>
               </div>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={resetSearch}
-                className="text-blue-700 border-blue-300 hover:bg-blue-50"
+                className="text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10 hover:text-indigo-300 bg-transparent"
               >
-                <RefreshCw className="w-4 h-4 mr-2" /> Reset
+                <RefreshCw className="w-4 h-4 mr-2" /> REBOOT
               </Button>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setShowPasswordChangeModal(true)}
-                className="text-blue-700 border-blue-300 hover:bg-blue-50"
+                className="text-zinc-300 border-white/10 hover:bg-white/5 bg-transparent"
               >
                 <Key className="w-4 h-4 mr-2" />
-                Change Password
+                UPDATE KEY
               </Button>
               <div className="hidden md:flex items-center">
-                <div className="w-9 h-9 rounded-full bg-blue-600 text-white flex items-center justify-center mr-3 text-sm font-semibold">
+                <div className="w-8 h-8 rounded-md bg-indigo-600/20 border border-indigo-500/50 text-indigo-400 flex items-center justify-center text-sm font-bold font-mono shadow-[0_0_10px_rgba(79,70,229,0.2)]">
                   {initials || "U"}
                 </div>
               </div>
@@ -736,10 +732,10 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
                 variant="outline"
                 size="sm"
                 onClick={authLogout}
-                className="text-gray-700 border-gray-300 hover:bg-gray-50"
+                className="text-red-400 border-red-500/30 hover:bg-red-500/10 hover:text-red-300 bg-transparent ml-2"
               >
                 <LogOut className="w-4 h-4 mr-2" />
-                Sign Out
+                DISCONNECT
               </Button>
             </div>
           </div>
@@ -750,70 +746,73 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
           <div className="flex-1 p-8">
             {/* Error Message */}
             {error && (
-              <div className="flex items-center space-x-2 p-4 bg-red-50 border border-red-200 rounded-lg mb-6">
+              <div className="flex items-center space-x-3 p-4 bg-red-950/50 border border-red-500/30 rounded-xl mb-6 shadow-lg">
                 <AlertCircle className="w-5 h-5 text-red-500" />
-                <p className="text-sm text-red-600">{error}</p>
+                <p className="text-sm font-mono text-red-300">{error}</p>
               </div>
             )}
 
             {/* Cache Notice */}
             {restoredFromCache && <CacheNotice />}
 
-            {/* Search Form (single card) */}
+            {/* Search Form */}
             <div className="flex justify-end mb-2">
               {willUseEnhancedMobileSearch() && (
-                <span className="text-xs font-medium text-blue-700 bg-blue-50 border border-blue-200 px-2 py-1 rounded">
-                  Enhanced mobile matching
+                <span className="text-[10px] uppercase font-mono tracking-widest text-indigo-400 bg-indigo-500/10 border border-indigo-500/30 px-2 py-1 rounded">
+                  Enhanced telemetry active
                 </span>
               )}
             </div>
-            <SearchForm
-              searchCriteria={searchCriteria as any}
-              onChange={handleInputChange as any}
-              searchLogic={searchLogic}
-              onChangeLogic={setSearchLogic}
-              isLoading={isLoading}
-              remainingSearches={remainingSearches}
-              onSubmit={handleSearch}
-            />
+
+            <div className="mb-8">
+              <SearchForm
+                searchCriteria={searchCriteria as any}
+                onChange={handleInputChange as any}
+                searchLogic={searchLogic}
+                onChangeLogic={setSearchLogic}
+                isLoading={isLoading}
+                remainingSearches={remainingSearches}
+                onSubmit={handleSearch}
+              />
+            </div>
 
             {/* Stats Bar */}
             {(totalResults > 0 || searchMessage) && (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 my-6">
-                <Card className="shadow-sm">
+                <Card className="bg-[#0a0a0a] border-white/10 hover:bg-white/5 transition-colors">
                   <CardContent className="py-4 flex items-center justify-between">
                     <div>
-                      <p className="text-xs text-gray-500">Total Results</p>
-                      <p className="text-xl font-semibold text-gray-900">
+                      <p className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">Nodes Located</p>
+                      <p className="text-2xl font-bold font-mono text-white">
                         {totalResults}
                       </p>
                     </div>
-                    <TrendingUp className="w-5 h-5 text-gray-400" />
+                    <TrendingUp className="w-5 h-5 text-indigo-400/50" />
                   </CardContent>
                 </Card>
-                <Card className="shadow-sm">
+                <Card className="bg-[#0a0a0a] border-white/10 hover:bg-white/5 transition-colors">
                   <CardContent className="py-4 flex items-center justify-between">
                     <div>
-                      <p className="text-xs text-gray-500">Execution Time</p>
-                      <p className="text-xl font-semibold text-gray-900">
+                      <p className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">Query Latency</p>
+                      <p className="text-2xl font-bold font-mono text-white">
                         {executionTime} ms
                       </p>
                     </div>
-                    <Clock className="w-5 h-5 text-gray-400" />
+                    <Clock className="w-5 h-5 text-cyan-400/50" />
                   </CardContent>
                 </Card>
-                <Card className="shadow-sm">
+                <Card className="bg-[#0a0a0a] border-white/10 hover:bg-white/5 transition-colors">
                   <CardContent className="py-4 flex items-center justify-between">
                     <div>
-                      <p className="text-xs text-gray-500">Source</p>
+                      <p className="text-[10px] font-mono uppercase tracking-widest text-zinc-500">Data Origin</p>
                       <p
-                        className={`text-sm font-semibold ${
+                        className={`text-sm font-mono tracking-widest uppercase mt-1 ${
                           restoredFromCache
-                            ? "text-amber-700"
-                            : "text-emerald-700"
+                            ? "text-amber-400"
+                            : "text-emerald-400"
                         }`}
                       >
-                        {restoredFromCache ? "From Cache" : "Live"}
+                        {restoredFromCache ? "LOCAL MEMORY" : "LIVE UPLINK"}
                       </p>
                     </div>
                   </CardContent>
@@ -823,17 +822,18 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
 
             {/* Client-side Search Within */}
             {originalSearchResults.length > 0 && (
-              <SearchWithin
-                query={searchWithinQuery}
-                onQueryChange={(v) => {
-                  setSearchWithinQuery(v);
-                  // Scroll into view on first filter activation
-                  if (v && !searchWithinQuery) {
-                    scrollToResults();
-                  }
-                }}
-                disabled={isLoading}
-              />
+              <div className="mb-6">
+                <SearchWithin
+                  query={searchWithinQuery}
+                  onQueryChange={(v) => {
+                    setSearchWithinQuery(v);
+                    if (v && !searchWithinQuery) {
+                      scrollToResults();
+                    }
+                  }}
+                  disabled={isLoading}
+                />
+              </div>
             )}
 
             {/* Search Results */}
@@ -858,82 +858,84 @@ Circle: ${result.circle}${result.email ? `\nEmail: ${result.email}` : ""}${
           </div>
 
           {/* Right Panel - Profile + Daily Usage */}
-          <div className="w-80 bg-white/70 backdrop-blur supports-[backdrop-filter]:bg-white/60 border-l border-gray-200 p-6 sticky top-16 h-[calc(100vh-4rem)] overflow-y-auto">
-            <Card className="shadow-sm mb-6">
-              <CardHeader className="pb-3">
+          <div className="w-80 bg-[#0a0a0a] border-l border-white/10 p-6 sticky top-[73px] h-[calc(100vh-73px)] overflow-y-auto">
+            <Card className="bg-[#0f0f0f] border-white/10 mb-8">
+              <CardHeader className="pb-3 border-b border-white/5">
                 <div className="flex items-center">
-                  <div className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center mr-3 text-sm font-semibold">
+                  <div className="w-10 h-10 rounded-md bg-indigo-500/20 border border-indigo-500/50 text-indigo-400 flex items-center justify-center mr-3 text-sm font-bold shadow-[0_0_15px_rgba(79,70,229,0.3)]">
                     {initials || "U"}
                   </div>
                   <div>
-                    <CardTitle className="text-base text-gray-900">
+                    <CardTitle className="text-sm text-white font-mono tracking-wide">
                       {user.name}
                     </CardTitle>
-                    <p className="text-xs text-gray-600">Signed in</p>
+                    <p className="text-[10px] text-green-400 font-mono tracking-widest uppercase flex items-center gap-1 mt-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
+                      SECURE COMMS
+                    </p>
                   </div>
                 </div>
               </CardHeader>
-              <CardContent className="pt-0">
-                <div className="flex items-center text-xs text-gray-600">
-                  <UserIcon className="w-4 h-4 mr-1" />
-                  User Dashboard
+              <CardContent className="pt-4">
+                <div className="flex items-center text-[10px] uppercase font-mono text-zinc-500 tracking-widest">
+                  <UserIcon className="w-3 h-3 mr-2" />
+                  Terminal Operator Status
                 </div>
               </CardContent>
             </Card>
 
-            <div className="mb-6">
-              <h3 className="text-lg font-semibold text-gray-900 mb-4">
-                Daily Usage
+            <div className="mb-4">
+              <h3 className="text-xs font-mono uppercase tracking-widest text-zinc-500 mb-2">
+                System Allocation
               </h3>
             </div>
 
-            <Card className="shadow-sm">
-              <CardHeader>
+            <Card className="bg-[#0f0f0f] border-white/10">
+              <CardHeader className="pb-2">
                 <div className="flex items-center">
-                  <Clock className="w-5 h-5 text-blue-600 mr-2" />
-                  <CardTitle className="text-base text-gray-900">
-                    Daily Search Limit
+                  <Clock className="w-4 h-4 text-indigo-400 mr-2" />
+                  <CardTitle className="text-xs font-mono uppercase tracking-widest text-white">
+                    Daily Quota
                   </CardTitle>
                 </div>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <p className="text-sm text-gray-600">
-                  Searches used today: {userAnalytics?.today_searches || 0} of{" "}
-                  {user.max_searches_per_day} remaining.
+              <CardContent className="space-y-5 pt-2">
+                <p className="text-[10px] font-mono text-zinc-400 uppercase">
+                  Queries active: {userAnalytics?.today_searches || 0} / {user.max_searches_per_day}
                 </p>
 
-                <div className="w-full bg-gray-200 rounded-full h-3">
+                <div className="w-full bg-white/5 rounded-full h-1.5 border border-white/10 overflow-hidden">
                   <div
-                    className={`h-3 rounded-full transition-all duration-300 ${
+                    className={`h-full transition-all duration-300 ${
                       usagePercentage > 80
-                        ? "bg-red-600"
+                        ? "bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.5)]"
                         : usagePercentage > 60
-                        ? "bg-yellow-600"
-                        : "bg-green-600"
+                        ? "bg-amber-500 shadow-[0_0_10px_rgba(245,158,11,0.5)]"
+                        : "bg-indigo-500 shadow-[0_0_10px_rgba(79,70,229,0.5)]"
                     }`}
                     style={{ width: `${Math.min(usagePercentage, 100)}%` }}
                   ></div>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4 text-center">
-                  <div className="bg-gray-50 p-3 rounded-lg border">
-                    <p className="text-2xl font-bold text-gray-900">
+                <div className="grid grid-cols-2 gap-3 text-center">
+                  <div className="bg-black/50 p-3 rounded-lg border border-white/5">
+                    <p className="text-xl font-mono font-bold text-white">
                       {userAnalytics?.today_searches || 0}
                     </p>
-                    <p className="text-sm text-gray-600">Searches Today</p>
+                    <p className="text-[9px] uppercase tracking-widest text-zinc-500 mt-1">Consumed</p>
                   </div>
-                  <div className="bg-gray-50 p-3 rounded-lg border">
-                    <p className="text-2xl font-bold text-gray-900">
+                  <div className="bg-black/50 p-3 rounded-lg border border-white/5">
+                    <p className="text-xl font-mono font-bold text-white">
                       {remainingSearches}
                     </p>
-                    <p className="text-sm text-gray-600">Remaining</p>
+                    <p className="text-[9px] uppercase tracking-widest text-zinc-500 mt-1">Remaining</p>
                   </div>
                 </div>
 
                 {remainingSearches <= 0 && (
-                  <div className="bg-red-50 p-3 rounded-lg border border-red-200">
-                    <p className="text-sm text-red-800 text-center">
-                      Daily search limit reached. Please try again tomorrow.
+                  <div className="bg-red-950/30 p-3 rounded-lg border border-red-500/30">
+                    <p className="text-[10px] font-mono text-red-400 text-center uppercase tracking-widest">
+                      Quota depleted. Refresh at 00:00.
                     </p>
                   </div>
                 )}
