@@ -71,7 +71,7 @@ INSERT INTO users (name, email, password_hash, user_type, role, is_active)
 VALUES (
     'System Admin',
     'admin@finone.com',
-    '$2a$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi',
+    '$2a$10$FYq/4.ci2cs9d31DRcbRse2NEBjYD9ueYgVypmpJLMR1xluZYOuLO',
     'PERMANENT',
     'ADMIN',
     true
