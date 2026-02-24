@@ -76,8 +76,13 @@ export const formatRelativeTimeIST = (
 ): string => {
   if (!dateString) return "Never";
 
-  const date = new Date(dateString);
+  let date = new Date(dateString);
   if (isNaN(date.getTime())) return "Invalid Date";
+
+  // TEMPORARY FIX: Backend stores IST time as UTC, so we need to subtract IST offset
+  if (dateString.includes("Z")) {
+    date = new Date(date.getTime() - 5.5 * 60 * 60 * 1000);
+  }
 
   const now = new Date();
   const diffMs = now.getTime() - date.getTime();

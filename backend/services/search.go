@@ -953,6 +953,13 @@ func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.Enhan
 	cacheKey := fmt.Sprintf("enhanced_mobile_%s_%d_%d", cleanedMobile, req.Limit, req.Offset)
 	if cached, found := s.getCachedResult(cacheKey); found {
 		utils.LogInfo("Cache hit for enhanced mobile search")
+
+		searchReqObj := &models.SearchRequest{
+			Query:          req.MobileNumber,
+			EnhancedMobile: true,
+		}
+		go s.logSearch(userID, searchReqObj, cached.TotalCount, cached.ExecutionTime, searchID, cacheKey)
+
 		return &models.EnhancedMobileSearchResponse{
 			DirectMatches:        cached.Results,
 			MasterIDMatches:      []models.Person{},
@@ -1110,6 +1117,12 @@ func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.Enhan
 	executionTime := int(time.Since(startTime).Milliseconds())
 
 	s.setCachedResult(cacheKey, allResults, totalCount, executionTime)
+
+	searchReqObj := &models.SearchRequest{
+		Query:          req.MobileNumber,
+		EnhancedMobile: true,
+	}
+	go s.logSearch(userID, searchReqObj, totalCount, executionTime, searchID, cacheKey)
 
 	if totalCount > 0 {
 		if err := authService.IncrementSearchCount(userID); err != nil {

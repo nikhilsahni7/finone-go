@@ -75,4 +75,9 @@ VALUES (
     'PERMANENT',
     'ADMIN',
     true
-) ON CONFLICT (email) DO NOTHING;
+) ON CONFLICT (email) DO NOTHING
+
+
+
+
+
