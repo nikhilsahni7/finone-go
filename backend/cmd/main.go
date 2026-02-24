@@ -37,16 +37,11 @@ func main() {
 		log.Fatalf("Failed to run PostgreSQL migrations: %v", err)
 	}
 
-	// Initialize ClickHouse connection
-	if err := database.InitClickHouse(); err != nil {
-		log.Fatalf("Failed to initialize ClickHouse: %v", err)
+	// Initialize OpenSearch connection
+	if err := database.InitOpenSearch(); err != nil {
+		log.Fatalf("Failed to initialize OpenSearch: %v", err)
 	}
-	defer database.CloseClickHouse()
-
-	// Run ClickHouse migrations
-	if err := database.RunClickHouseMigrations(); err != nil {
-		log.Fatalf("Failed to run ClickHouse migrations: %v", err)
-	}
+	defer database.CloseOpenSearch()
 
 	// Start the daily reset scheduler
 	utils.LogInfo("Starting background schedulers...")
@@ -76,9 +71,7 @@ func setupRouter() *gin.Engine {
 	router := gin.New()
 
 	// Trust common proxy headers if running behind a proxy
-	// This makes c.ClientIP() respect X-Forwarded-For / X-Real-IP
 	if err := router.SetTrustedProxies([]string{"0.0.0.0/0", "::/0"}); err != nil {
-		// If this fails (e.g., older kernels), fall back to empty list
 		_ = router.SetTrustedProxies(nil)
 	}
 
@@ -93,7 +86,7 @@ func setupRouter() *gin.Engine {
 		utils.LogInfo(fmt.Sprintf("Response: %d for %s %s", c.Writer.Status(), c.Request.Method, c.Request.URL.Path))
 	})
 
-	// router.Use(middleware.CORSMiddleware()) // Disabled - nginx handles CORS
+	router.Use(middleware.CORSMiddleware()) // Disabled - nginx handles CORS
 	router.Use(middleware.RateLimitMiddleware())
 
 	// Initialize handlers
@@ -106,17 +99,17 @@ func setupRouter() *gin.Engine {
 	router.GET("/health", func(c *gin.Context) {
 		// Check database connections
 		pgErr := database.PostgresHealthCheck()
-		chErr := database.ClickHouseHealthCheck()
+		osErr := database.OpenSearchHealthCheck()
 
 		status := "healthy"
-		if pgErr != nil || chErr != nil {
+		if pgErr != nil || osErr != nil {
 			status = "unhealthy"
 		}
 
 		c.JSON(200, gin.H{
 			"status":     status,
 			"postgresql": pgErr == nil,
-			"clickhouse": chErr == nil,
+			"opensearch": osErr == nil,
 		})
 	})
 
@@ -200,7 +193,7 @@ func setupRouter() *gin.Engine {
 				admin.POST("/users/:id/reset-daily-search-count", userHandler.ResetUserDailySearchCount)
 				admin.GET("/reset/next-reset-time", userHandler.GetNextResetTime)
 
-				// CSV import
+				// CSV import (disabled - data managed via OpenSearch)
 				admin.POST("/import/csv", searchHandler.ImportCSV)
 				admin.POST("/import/csv-path", searchHandler.ImportCSVFromPath)
 			}

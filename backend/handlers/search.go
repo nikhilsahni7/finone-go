@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"context"
 	"encoding/csv"
 	"encoding/json"
 	"finone-search-system/database"
@@ -130,93 +129,12 @@ func (h *SearchHandler) GetStats(c *gin.Context) {
 
 // ImportCSV handles CSV file import (admin only)
 func (h *SearchHandler) ImportCSV(c *gin.Context) {
-	// Get file from form data
-	file, header, err := c.Request.FormFile("csv_file")
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No file provided"})
-		return
-	}
-	defer file.Close()
-
-	// Get batch size from form (optional)
-	batchSizeStr := c.DefaultPostForm("batch_size", "100000")
-	batchSize, err := strconv.Atoi(batchSizeStr)
-	if err != nil || batchSize < 1000 {
-		batchSize = 100000
-	}
-
-	// Get has_header flag
-	hasHeader := c.DefaultPostForm("has_header", "true") == "true"
-
-	utils.LogInfo("Starting CSV import: " + header.Filename)
-
-	// Save uploaded file temporarily
-	tempFilePath := "/tmp/" + header.Filename
-	if err := c.SaveUploadedFile(header, tempFilePath); err != nil {
-		utils.LogError("Failed to save uploaded file", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save file"})
-		return
-	}
-
-	// Ensure temp file cleanup regardless of success or failure
-	defer func() {
-		if err := os.Remove(tempFilePath); err != nil {
-			utils.LogError("Failed to cleanup temp file: "+tempFilePath, err)
-		} else {
-			utils.LogInfo("Cleaned up temp file: " + tempFilePath)
-		}
-	}()
-
-	// Process the CSV file
-	processor := utils.NewCSVProcessor(batchSize, "/tmp")
-	response, err := processor.ProcessCSVFile(tempFilePath, hasHeader)
-	if err != nil {
-		utils.LogError("CSV processing failed", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "CSV processing failed"})
-		return
-	}
-
-	utils.LogInfo("CSV import completed successfully")
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusBadRequest, gin.H{"error": "CSV import is not supported. Data is managed directly via OpenSearch."})
 }
 
 // ImportCSVFromPath handles CSV file import from direct file path (admin only)
 func (h *SearchHandler) ImportCSVFromPath(c *gin.Context) {
-	var req struct {
-		FilePath  string `json:"file_path" validate:"required"`
-		BatchSize int    `json:"batch_size"`
-		HasHeader bool   `json:"has_header"`
-	}
-
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request format"})
-		return
-	}
-
-	// Set defaults - optimize for large files
-	if req.BatchSize == 0 {
-		req.BatchSize = 1000000 // 1 million rows per batch for better performance
-	}
-
-	utils.LogInfo(fmt.Sprintf("Starting CSV import from path: %s (batch size: %d)", req.FilePath, req.BatchSize))
-
-	// Check if file exists
-	if _, err := os.Stat(req.FilePath); os.IsNotExist(err) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "File not found: " + req.FilePath})
-		return
-	}
-
-	// Process the CSV file directly (no temp file needed)
-	processor := utils.NewCSVProcessor(req.BatchSize, "/tmp")
-	response, err := processor.ProcessCSVFile(req.FilePath, req.HasHeader)
-	if err != nil {
-		utils.LogError("CSV processing failed", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "CSV processing failed"})
-		return
-	}
-
-	utils.LogInfo("CSV import completed successfully")
-	c.JSON(http.StatusOK, response)
+	c.JSON(http.StatusBadRequest, gin.H{"error": "CSV import is not supported. Data is managed directly via OpenSearch."})
 }
 
 // ExportSearchResults handles exporting search results to CSV
@@ -289,16 +207,39 @@ func (h *SearchHandler) ExportSearchResults(c *gin.Context) {
 
 	// Helper to dump up to 25 rows for a given SearchRequest and metadata
 	dumpQueryResults := func(idx int, when time.Time, sr *models.SearchRequest) error {
-		// Use limit 25 regardless of original
-		query, args := h.searchService.BuildSearchSQL(sr, 25, 0)
+		// Build OpenSearch query body with limit 25
+		searchBody, err := h.searchService.BuildSearchQuery(sr, 25, 0)
+		if err != nil {
+			return fmt.Errorf("failed to build query for export: %w", err)
+		}
 
-		// Execute in ClickHouse directly
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-		defer cancel()
+		// Execute via the shared OpenSearch helper
+		bodyJSON, _ := json.Marshal(searchBody)
+
+		ctx := c.Request.Context()
+		_ = ctx // if needed for logging
+
+		// We need to use the executeOpenSearch-like flow, but since it's a package-level
+		// function we call the service method instead
 		var results []models.Person
-		if err := database.ClickHouseDB.Select(ctx, &results, query, args...); err != nil {
+		// Use the service search with a minimal request
+		exportReq := &models.SearchRequest{
+			Query:        sr.Query,
+			Fields:       sr.Fields,
+			FieldQueries: sr.FieldQueries,
+			Logic:        sr.Logic,
+			MatchType:    sr.MatchType,
+			Limit:        25,
+			Offset:       0,
+		}
+
+		_ = bodyJSON // logged inside service
+
+		resp, err := h.searchService.Search(userID, exportReq)
+		if err != nil {
 			return fmt.Errorf("failed query for export: %w", err)
 		}
+		results = resp.Results
 
 		// Write rows
 		for _, p := range results {
@@ -339,7 +280,6 @@ func (h *SearchHandler) ExportSearchResults(c *gin.Context) {
 		// For each search, parse request and export up to 25
 		for i, srec := range searches {
 			var sr models.SearchRequest
-			// search_query is JSONB (interface{}). Normalize to bytes then unmarshal
 			var raw []byte
 			switch v := srec.SearchQuery.(type) {
 			case []byte:
@@ -351,7 +291,6 @@ func (h *SearchHandler) ExportSearchResults(c *gin.Context) {
 			}
 			if err := json.Unmarshal(raw, &sr); err != nil {
 				utils.LogError("Failed to parse stored search query", err)
-				// skip bad record
 				continue
 			}
 
@@ -494,7 +433,6 @@ func (h *SearchHandler) SearchWithin(c *gin.Context) {
 	// Add message if no results found
 	if response.TotalCount == 0 {
 		utils.LogInfo("Search within completed successfully - No results found")
-		// Create response with no results message
 		responseWithMessage := gin.H{
 			"results":           response.Results,
 			"total_count":       response.TotalCount,
@@ -558,7 +496,6 @@ func (h *SearchHandler) EnhancedMobileSearch(c *gin.Context) {
 	// Add message if no results found
 	if response.TotalCount == 0 {
 		utils.LogInfo("Enhanced mobile search completed successfully - No results found")
-		// Create response with no results message
 		responseWithMessage := gin.H{
 			"direct_matches":          response.DirectMatches,
 			"master_id_matches":       response.MasterIDMatches,
@@ -579,3 +516,6 @@ func (h *SearchHandler) EnhancedMobileSearch(c *gin.Context) {
 		len(response.DirectMatches), len(response.MasterIDMatches)))
 	c.JSON(http.StatusOK, response)
 }
+
+// unused import guard
+var _ = strconv.Itoa

@@ -4,17 +4,19 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v2"
 )
 
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Database DatabaseConfig `yaml:"database"`
-	JWT      JWTConfig      `yaml:"jwt"`
-	Limits   LimitsConfig   `yaml:"limits"`
-	CSV      CSVConfig      `yaml:"csv"`
+	Server     ServerConfig     `yaml:"server"`
+	Database   DatabaseConfig   `yaml:"database"`
+	JWT        JWTConfig        `yaml:"jwt"`
+	Limits     LimitsConfig     `yaml:"limits"`
+	CSV        CSVConfig        `yaml:"csv"`
+	OpenSearch OpenSearchConfig `yaml:"opensearch"`
 }
 
 type ServerConfig struct {
@@ -24,8 +26,7 @@ type ServerConfig struct {
 }
 
 type DatabaseConfig struct {
-	Postgres   PostgresConfig   `yaml:"postgres"`
-	ClickHouse ClickHouseConfig `yaml:"clickhouse"`
+	Postgres PostgresConfig `yaml:"postgres"`
 }
 
 type PostgresConfig struct {
@@ -37,15 +38,12 @@ type PostgresConfig struct {
 	SSLMode  string `yaml:"sslmode"`
 }
 
-type ClickHouseConfig struct {
-	Host       string `yaml:"host"`
-	Port       int    `yaml:"port"`
-	User       string `yaml:"user"`
-	Password   string `yaml:"password"`
-	Database   string `yaml:"database"`
-	UseHTTP    bool   `yaml:"use_http"`
-	Secure     bool   `yaml:"secure"`
-	SkipVerify bool   `yaml:"skip_verify"`
+type OpenSearchConfig struct {
+	Endpoint   string   `yaml:"endpoint"`
+	Index      string   `yaml:"index"`
+	Indices    []string `yaml:"indices"`
+	MasterUser string   `yaml:"master_user"`
+	MasterPass string   `yaml:"master_pass"`
 }
 
 type JWTConfig struct {
@@ -70,6 +68,9 @@ var AppConfig *Config
 func LoadConfig() error {
 	config := &Config{}
 
+	// Load .env file if present (sets OS env vars)
+	loadDotEnv()
+
 	// Try to load from YAML file first
 	if err := loadFromYAML(config); err != nil {
 		// If YAML fails, load from environment variables
@@ -81,6 +82,43 @@ func LoadConfig() error {
 
 	AppConfig = config
 	return nil
+}
+
+// loadDotEnv reads a .env file and sets the key=value pairs as environment variables.
+// It tries several candidate paths relative to the working directory.
+func loadDotEnv() {
+	candidates := []string{".env", "../.env", "../../.env"}
+	if envPath := os.Getenv("ENV_FILE"); envPath != "" {
+		candidates = append([]string{envPath}, candidates...)
+	}
+
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(data), "\n") {
+			line = strings.TrimSpace(line)
+			if line == "" || strings.HasPrefix(line, "#") {
+				continue
+			}
+			eqIdx := strings.Index(line, "=")
+			if eqIdx < 0 {
+				continue
+			}
+			key := strings.TrimSpace(line[:eqIdx])
+			value := strings.TrimSpace(line[eqIdx+1:])
+			// Strip surrounding quotes if present
+			if len(value) >= 2 && ((value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'')) {
+				value = value[1 : len(value)-1]
+			}
+			// Only set if not already set in real env (real env takes precedence)
+			if os.Getenv(key) == "" {
+				os.Setenv(key, value)
+			}
+		}
+		break // Only load from the first file found
+	}
 }
 
 func loadFromYAML(config *Config) error {
@@ -132,14 +170,23 @@ func loadFromEnv(config *Config) {
 	config.Database.Postgres.DBName = getEnv("POSTGRES_DB", "finone_search")
 	config.Database.Postgres.SSLMode = getEnv("POSTGRES_SSLMODE", "disable")
 
-	config.Database.ClickHouse.Host = getEnv("CLICKHOUSE_HOST", "localhost")
-	config.Database.ClickHouse.Port = getEnvAsInt("CLICKHOUSE_PORT", 9000)
-	config.Database.ClickHouse.User = getEnv("CLICKHOUSE_USER", "default")
-	config.Database.ClickHouse.Password = getEnv("CLICKHOUSE_PASSWORD", "")
-	config.Database.ClickHouse.Database = getEnv("CLICKHOUSE_DB", "finone_search")
-	config.Database.ClickHouse.UseHTTP = getEnvAsBool("CLICKHOUSE_USE_HTTP", false)
-	config.Database.ClickHouse.Secure = getEnvAsBool("CLICKHOUSE_SECURE", false)
-	config.Database.ClickHouse.SkipVerify = getEnvAsBool("CLICKHOUSE_SKIP_VERIFY", false)
+	// OpenSearch config from env
+	config.OpenSearch.Endpoint = getEnv("OPENSEARCH_ENDPOINT", "")
+	config.OpenSearch.Index = getEnv("OPENSEARCH_INDEX", "")
+	config.OpenSearch.MasterUser = getEnv("OPENSEARCH_MASTER_USER", "")
+	config.OpenSearch.MasterPass = getEnv("OPENSEARCH_MASTER_PASSWORD", "")
+
+	indicesStr := getEnv("OPENSEARCH_INDICES", "")
+	if indicesStr != "" {
+		for _, idx := range strings.Split(indicesStr, ",") {
+			if trimmed := strings.TrimSpace(idx); trimmed != "" {
+				config.OpenSearch.Indices = append(config.OpenSearch.Indices, trimmed)
+			}
+		}
+	}
+	if len(config.OpenSearch.Indices) == 0 && config.OpenSearch.Index != "" {
+		config.OpenSearch.Indices = []string{config.OpenSearch.Index}
+	}
 
 	config.JWT.Secret = getEnv("JWT_SECRET", "your-super-secret-key-change-in-production")
 	config.JWT.Expiry = time.Duration(getEnvAsInt("JWT_EXPIRY_HOURS", 24)) * time.Hour
@@ -159,7 +206,31 @@ func overrideWithEnv(config *Config) {
 			config.Server.Port = p
 		}
 	}
-	// Add more overrides as needed
+
+	// OpenSearch env overrides
+	if v := os.Getenv("OPENSEARCH_ENDPOINT"); v != "" {
+		config.OpenSearch.Endpoint = v
+	}
+	if v := os.Getenv("OPENSEARCH_INDEX"); v != "" {
+		config.OpenSearch.Index = v
+	}
+	if v := os.Getenv("OPENSEARCH_MASTER_USER"); v != "" {
+		config.OpenSearch.MasterUser = v
+	}
+	if v := os.Getenv("OPENSEARCH_MASTER_PASSWORD"); v != "" {
+		config.OpenSearch.MasterPass = v
+	}
+	if v := os.Getenv("OPENSEARCH_INDICES"); v != "" {
+		config.OpenSearch.Indices = nil
+		for _, idx := range strings.Split(v, ",") {
+			if trimmed := strings.TrimSpace(idx); trimmed != "" {
+				config.OpenSearch.Indices = append(config.OpenSearch.Indices, trimmed)
+			}
+		}
+	}
+	if len(config.OpenSearch.Indices) == 0 && config.OpenSearch.Index != "" {
+		config.OpenSearch.Indices = []string{config.OpenSearch.Index}
+	}
 }
 
 func getEnv(key, defaultValue string) string {
@@ -199,19 +270,4 @@ func (c *Config) GetPostgresConnectionString() string {
 		c.Database.Postgres.DBName,
 		c.Database.Postgres.SSLMode,
 	)
-}
-
-func (c *Config) GetClickHouseConnectionString() string {
-	connectionStr := fmt.Sprintf("tcp://%s:%d?database=%s&username=%s",
-		c.Database.ClickHouse.Host,
-		c.Database.ClickHouse.Port,
-		c.Database.ClickHouse.Database,
-		c.Database.ClickHouse.User,
-	)
-
-	if c.Database.ClickHouse.Password != "" {
-		connectionStr += "&password=" + c.Database.ClickHouse.Password
-	}
-
-	return connectionStr
 }

@@ -4,21 +4,19 @@ import (
 	"time"
 )
 
-// Person represents a person record in ClickHouse
-// Note: A materialized `pincode` column exists in the table for performance,
-// but is intentionally not part of this struct to keep API responses stable.
+// Person represents a person record (data stored in OpenSearch)
 type Person struct {
-	ID        string    `json:"id" ch:"id"`
-	MasterID  string    `json:"master_id" ch:"master_id"`
-	Mobile    string    `json:"mobile" ch:"mobile"`
-	Name      string    `json:"name" ch:"name"`
-	FName     string    `json:"fname" ch:"fname"`
-	Address   string    `json:"address" ch:"address"`
-	Alt       string    `json:"alt" ch:"alt"`
-	Circle    string    `json:"circle" ch:"circle"`
-	Email     string    `json:"email" ch:"email"`
-	CreatedAt time.Time `json:"created_at" ch:"created_at"`
-	UpdatedAt time.Time `json:"updated_at" ch:"updated_at"`
+	ID        string    `json:"id"`
+	MasterID  string    `json:"master_id"`
+	Mobile    string    `json:"mobile"`
+	Name      string    `json:"name"`
+	FName     string    `json:"fname"`
+	Address   string    `json:"address"`
+	Alt       string    `json:"alt"`
+	Circle    string    `json:"circle"`
+	Email     string    `json:"email"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // SearchRequest represents a search request payload
@@ -82,16 +80,6 @@ type CSVImportResponse struct {
 	StartTime     time.Time  `json:"start_time"`
 	EndTime       *time.Time `json:"end_time,omitempty"`
 	Errors        []string   `json:"errors,omitempty"`
-}
-
-// SearchPerformance represents search performance metrics in ClickHouse
-type SearchPerformance struct {
-	QueryID         string    `json:"query_id" ch:"query_id"`
-	UserID          string    `json:"user_id" ch:"user_id"`
-	QueryText       string    `json:"query_text" ch:"query_text"`
-	ExecutionTimeMs int       `json:"execution_time_ms" ch:"execution_time_ms"`
-	ResultCount     int       `json:"result_count" ch:"result_count"`
-	Timestamp       time.Time `json:"timestamp" ch:"timestamp"`
 }
 
 // ExportRequest represents an export request

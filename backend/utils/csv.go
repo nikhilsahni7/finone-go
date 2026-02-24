@@ -2,21 +2,15 @@ package utils
 
 import (
 	"bufio"
-	"context"
 	"encoding/csv"
 	"fmt"
 	"io"
 	"os"
-	"strings"
-	"time"
-
-	"finone-search-system/database"
-	"finone-search-system/models"
-
-	"github.com/google/uuid"
 )
 
-// CSVProcessor handles large CSV file processing
+// CSVProcessor handles CSV file processing
+// Note: Since data is now managed directly via OpenSearch, the CSV import
+// functionality is disabled. This struct is kept for validation and estimation utilities.
 type CSVProcessor struct {
 	batchSize int
 	tempDir   string
@@ -42,162 +36,6 @@ func NewCSVProcessor(batchSize int, tempDir string) *CSVProcessor {
 		tempDir:   tempDir,
 		fieldMap:  defaultFieldMap,
 	}
-}
-
-// ProcessCSVFile processes a large CSV file in batches
-func (cp *CSVProcessor) ProcessCSVFile(filePath string, hasHeader bool) (*models.CSVImportResponse, error) {
-	LogInfo(fmt.Sprintf("Starting CSV processing for file: %s", filePath))
-
-	file, err := os.Open(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to open CSV file: %w", err)
-	}
-	defer file.Close()
-
-	reader := csv.NewReader(file)
-	reader.Comma = ','
-	reader.LazyQuotes = true
-
-	response := &models.CSVImportResponse{
-		JobID:     uuid.New().String(),
-		Status:    "processing",
-		StartTime: time.Now(),
-	}
-
-	var batch []models.Person
-	lineCount := 0
-	errorCount := 0
-
-	// Skip header if present
-	if hasHeader {
-		if _, err := reader.Read(); err != nil {
-			return nil, fmt.Errorf("failed to read header: %w", err)
-		}
-	}
-
-	for {
-		record, err := reader.Read()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			errorCount++
-			LogError("Failed to read CSV record", err)
-			continue
-		}
-
-		person, err := cp.recordToPerson(record)
-		if err != nil {
-			errorCount++
-			LogError("Failed to convert record to person", err)
-			continue
-		}
-
-		batch = append(batch, *person)
-		lineCount++
-
-		// Process batch when it reaches the batch size
-		if len(batch) >= cp.batchSize {
-			if err := cp.insertBatch(batch); err != nil {
-				LogError("Failed to insert batch", err)
-				errorCount += len(batch)
-			} else {
-				response.ProcessedRows += len(batch)
-			}
-			batch = batch[:0] // Clear the batch
-		}
-
-		// Log progress every 100,000 rows
-		if lineCount%100000 == 0 {
-			LogInfo(fmt.Sprintf("Processed %d rows, imported %d", lineCount, response.ProcessedRows))
-		}
-	}
-
-	// Process remaining records in the final batch
-	if len(batch) > 0 {
-		if err := cp.insertBatch(batch); err != nil {
-			LogError("Failed to insert final batch", err)
-			errorCount += len(batch)
-		} else {
-			response.ProcessedRows += len(batch)
-		}
-	}
-
-	endTime := time.Now()
-	response.EndTime = &endTime
-	response.TotalRows = lineCount
-	response.ErrorRows = errorCount
-	response.Status = "completed"
-	duration := endTime.Sub(response.StartTime)
-	rowsPerSecond := float64(response.ProcessedRows) / duration.Seconds()
-
-	LogInfo(fmt.Sprintf("CSV processing completed in %v. Total: %d, Processed: %d, Errors: %d, Speed: %.0f rows/sec",
-		duration, response.TotalRows, response.ProcessedRows, response.ErrorRows, rowsPerSecond))
-
-	return response, nil
-}
-
-// recordToPerson converts a CSV record to a Person model
-func (cp *CSVProcessor) recordToPerson(record []string) (*models.Person, error) {
-	if len(record) < 8 {
-		return nil, fmt.Errorf("record has insufficient fields: %d", len(record))
-	}
-
-	person := &models.Person{
-		ID:        uuid.New().String(),
-		Mobile:    strings.TrimSpace(record[cp.fieldMap["mobile"]]),
-		Name:      strings.TrimSpace(record[cp.fieldMap["name"]]),
-		FName:     strings.TrimSpace(record[cp.fieldMap["fname"]]),
-		Address:   strings.TrimSpace(record[cp.fieldMap["address"]]),
-		Alt:       strings.TrimSpace(record[cp.fieldMap["alt"]]),
-		Circle:    strings.TrimSpace(record[cp.fieldMap["circle"]]),
-		MasterID:  strings.TrimSpace(record[cp.fieldMap["id"]]),
-		Email:     strings.TrimSpace(record[cp.fieldMap["email"]]),
-		CreatedAt: time.Now(),
-		UpdatedAt: time.Now(),
-	}
-
-	return person, nil
-}
-
-// insertBatch inserts a batch of people into ClickHouse
-func (cp *CSVProcessor) insertBatch(batch []models.Person) error {
-	if len(batch) == 0 {
-		return nil
-	}
-
-	ctx := context.Background()
-
-	// Prepare batch insert statement
-	batchInsert, err := database.ClickHouseDB.PrepareBatch(ctx,
-		`INSERT INTO finone_search.people
-		(id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at)`)
-	if err != nil {
-		return fmt.Errorf("failed to prepare batch: %w", err)
-	}
-
-	// Add each record to the batch
-	for _, person := range batch {
-		err := batchInsert.Append(
-			person.ID,
-			person.MasterID,
-			person.Mobile,
-			person.Name,
-			person.FName,
-			person.Address,
-			person.Alt,
-			person.Circle,
-			person.Email,
-			person.CreatedAt,
-			person.UpdatedAt,
-		)
-		if err != nil {
-			return fmt.Errorf("failed to append to batch: %w", err)
-		}
-	}
-
-	// Execute the batch
-	return batchInsert.Send()
 }
 
 // EstimateCSVRows estimates the number of rows in a CSV file

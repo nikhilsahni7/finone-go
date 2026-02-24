@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/opensearch-project/opensearch-go/v3/opensearchapi"
 )
 
 // SearchCache represents a cached search result
@@ -51,7 +53,6 @@ func (s *SearchService) cacheCleanupRoutine() {
 		s.cacheMutex.Lock()
 		now := time.Now()
 		for key, entry := range s.cache {
-			// Remove entries older than 10 minutes
 			if now.Sub(entry.Timestamp) > 10*time.Minute {
 				delete(s.cache, key)
 			}
@@ -70,7 +71,6 @@ func (s *SearchService) getCachedResult(fingerprint string) (*SearchCache, bool)
 		return nil, false
 	}
 
-	// Check if cache entry is still valid (10 minutes)
 	if time.Since(entry.Timestamp) > 10*time.Minute {
 		return nil, false
 	}
@@ -83,9 +83,7 @@ func (s *SearchService) setCachedResult(fingerprint string, results []models.Per
 	s.cacheMutex.Lock()
 	defer s.cacheMutex.Unlock()
 
-	// Limit cache size to prevent memory issues
 	if len(s.cache) > 1000 {
-		// Remove oldest entries
 		oldestKey := ""
 		oldestTime := time.Now()
 		for key, entry := range s.cache {
@@ -107,10 +105,8 @@ func (s *SearchService) setCachedResult(fingerprint string, results []models.Per
 	}
 }
 
-// computeSearchFingerprint generates a stable fingerprint for a search request that ignores pagination
-// and focuses on the query semantics only. It sorts maps and arrays to ensure determinism.
+// computeSearchFingerprint generates a stable fingerprint for a search request
 func (s *SearchService) computeSearchFingerprint(req *models.SearchRequest) string {
-	// Normalize values
 	logic := strings.ToUpper(strings.TrimSpace(req.Logic))
 	if logic != "AND" {
 		logic = "OR"
@@ -120,12 +116,10 @@ func (s *SearchService) computeSearchFingerprint(req *models.SearchRequest) stri
 		matchType = "partial"
 	}
 
-	// Sort fields
 	sortedFields := make([]string, 0, len(req.Fields))
 	sortedFields = append(sortedFields, req.Fields...)
 	sort.Strings(sortedFields)
 
-	// Sort field queries by key and normalize values
 	fqPairs := make([]string, 0, len(req.FieldQueries))
 	for k, v := range req.FieldQueries {
 		fqPairs = append(fqPairs, fmt.Sprintf("%s=%s", strings.ToLower(strings.TrimSpace(k)), strings.TrimSpace(v)))
@@ -154,52 +148,415 @@ func (s *SearchService) computeSearchFingerprint(req *models.SearchRequest) stri
 	return hex.EncodeToString(sum[:])
 }
 
-// isDuplicateSearchToday checks if a search with the same fingerprint already exists today for the user
+// isDuplicateSearchToday checks if a search with the same fingerprint already exists today
 func (s *SearchService) isDuplicateSearchToday(userID uuid.UUID, fingerprint string) (bool, error) {
-	query := `SELECT 1 FROM searches WHERE user_id = $1 AND search_time::date = CURRENT_DATE AND search_query ->> 'fingerprint' = $2 LIMIT 1`
+	query := `SELECT 1 FROM searches WHERE user_id = $1 AND search_time::date = CURRENT_DATE AND search_query ->>'fingerprint' = $2 LIMIT 1`
 	var tmp int
 	err := database.PostgresDB.Get(&tmp, query, userID, fingerprint)
 	if err != nil {
-		// If no rows, sqlx returns an error; treat as not duplicate
 		return false, nil
 	}
 	return true, nil
 }
 
-// helper: build condition for a field/value considering virtual fields like pincode
-func (s *SearchService) buildFieldCondition(field string, value string, matchType string, args *[]interface{}) (string, bool) {
-	// Virtual field: pincode is extracted from address; prefer exact 6-digit equality on materialized column
-	if field == "pincode" {
-		clean := strings.TrimSpace(value)
-		if clean == "" {
-			return "", false
-		}
-		// Only digits
-		digits := regexp.MustCompile(`\D`).ReplaceAllString(clean, "")
-		if len(digits) == 6 {
-			*args = append(*args, digits)
-			return "pincode = ?", true
-		}
-		if len(digits) >= 4 {
-			// Partial pincode: fallback to address filtering using case-insensitive position + regex token boundary
-			c1 := "positionCaseInsensitive(address, ?) > 0"
-			*args = append(*args, digits)
-			pattern := fmt.Sprintf("(^|[^0-9])%s([^0-9]|$)", regexp.QuoteMeta(digits))
-			c2 := "match(address, ?)"
-			*args = append(*args, pattern)
-			return fmt.Sprintf("(%s AND %s)", c1, c2), true
-		}
-		return "", false
-	}
+// -----------------------------------------------------------------------
+// OpenSearch query builders — matching the actual index schema
+//
+// Schema (from templates/people_v1.json):
+//   mobile:  keyword (normalizer: lowercase_keyword)
+//   name:    text (analyzer: name_analyzer) + name.keyword + name.exact (standard)
+//   fname:   text (analyzer: name_analyzer) + fname.keyword
+//   address: text (analyzer: address_analyzer, tokenizer splits on !) + address.keyword + address.parts (standard)
+//   alt:     keyword (normalizer: lowercase_keyword) + alt.text (standard)
+//   id:      keyword (normalizer: lowercase_keyword) + id.text (standard)
+//   oid:     keyword (normalizer: lowercase_keyword)
+//   email:   keyword (normalizer: lowercase_keyword) + email.text (standard)
+//   region:  keyword (normalizer: lowercase_keyword)
+// -----------------------------------------------------------------------
 
-	// Normal fields
-	if matchType == "full" {
-		return fmt.Sprintf("%s = ?", field), true
+// tokenize splits a value into lowercase alphanumeric tokens
+func tokenize(value string) []string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
 	}
-	return fmt.Sprintf("%s ILIKE ?", field), true
+	lower := strings.ToLower(trimmed)
+	split := strings.FieldsFunc(lower, func(r rune) bool {
+		return !(r >= 'a' && r <= 'z') && !(r >= '0' && r <= '9')
+	})
+	normalized := make([]string, 0, len(split))
+	for _, token := range split {
+		if token != "" {
+			normalized = append(normalized, token)
+		}
+	}
+	return normalized
 }
 
-// Search performs a search operation on the people data
+// mapFieldName maps frontend field names to OpenSearch field names
+// e.g. "master_id" from the finone frontend → "id" in OpenSearch
+func mapFieldName(field string) string {
+	switch field {
+	case "master_id":
+		return "id"
+	default:
+		return field
+	}
+}
+
+// buildFieldQuery creates the appropriate OpenSearch query clause for a field + value.
+// Matches the notorious backend's buildFieldQuery exactly, aligned with the index template.
+func buildFieldQuery(field, value string) map[string]interface{} {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return nil
+	}
+	valueLower := strings.ToLower(value)
+
+	// Remap field names from frontend to OpenSearch
+	osField := mapFieldName(field)
+
+	// --- Phone number fields: mobile, alt (keyword with lowercase normalizer) ---
+	if osField == "mobile" || osField == "alt" {
+		return map[string]interface{}{
+			"bool": map[string]interface{}{
+				"should": []map[string]interface{}{
+					{"term": map[string]interface{}{osField: valueLower}},
+					{"prefix": map[string]interface{}{osField: valueLower}},
+				},
+				"minimum_should_match": 1,
+			},
+		}
+	}
+
+	// --- ID fields: id, oid (keyword with lowercase normalizer) ---
+	if osField == "id" || osField == "oid" {
+		return map[string]interface{}{
+			"bool": map[string]interface{}{
+				"should": []map[string]interface{}{
+					{"term": map[string]interface{}{osField: valueLower}},
+					{"prefix": map[string]interface{}{osField: valueLower}},
+				},
+				"minimum_should_match": 1,
+			},
+		}
+	}
+
+	// --- Email (keyword with lowercase normalizer) ---
+	if osField == "email" {
+		return map[string]interface{}{
+			"bool": map[string]interface{}{
+				"should": []map[string]interface{}{
+					{"term": map[string]interface{}{osField: valueLower}},
+					{"prefix": map[string]interface{}{osField: valueLower}},
+				},
+				"minimum_should_match": 1,
+			},
+		}
+	}
+
+	// --- Name field (text with name_analyzer + name.keyword + name.exact) ---
+	if osField == "name" {
+		tokens := tokenize(value)
+		shouldClauses := []map[string]interface{}{
+			// Exact keyword match (lowercased via normalizer)
+			{
+				"term": map[string]interface{}{
+					"name.keyword": map[string]interface{}{
+						"value":            value,
+						"case_insensitive": true,
+					},
+				},
+			},
+		}
+
+		// Token-level AND match using name.exact (standard analyzer sub-field)
+		if len(tokens) > 0 {
+			mustTerms := make([]map[string]interface{}, 0, len(tokens))
+			for _, token := range tokens {
+				mustTerms = append(mustTerms, map[string]interface{}{
+					"term": map[string]interface{}{
+						"name.exact": token,
+					},
+				})
+			}
+			shouldClauses = append(shouldClauses, map[string]interface{}{
+				"bool": map[string]interface{}{"must": mustTerms},
+			})
+		}
+
+		return map[string]interface{}{
+			"bool": map[string]interface{}{
+				"should":               shouldClauses,
+				"minimum_should_match": 1,
+			},
+		}
+	}
+
+	// --- Father Name field (text with name_analyzer + fname.keyword, NO fname.exact) ---
+	if osField == "fname" {
+		tokens := tokenize(value)
+		shouldClauses := []map[string]interface{}{
+			// Exact keyword match
+			{
+				"term": map[string]interface{}{
+					"fname.keyword": map[string]interface{}{
+						"value":            value,
+						"case_insensitive": true,
+					},
+				},
+			},
+		}
+
+		// Use match query on the base field (uses name_analyzer which has edge_ngram)
+		if len(tokens) > 0 {
+			// Match on the base fname field which uses name_analyzer
+			shouldClauses = append(shouldClauses, map[string]interface{}{
+				"match": map[string]interface{}{
+					"fname": map[string]interface{}{
+						"query":    value,
+						"operator": "and",
+					},
+				},
+			})
+		}
+
+		return map[string]interface{}{
+			"bool": map[string]interface{}{
+				"should":               shouldClauses,
+				"minimum_should_match": 1,
+			},
+		}
+	}
+
+	// --- Address field (text with address_analyzer using ! delimiter + address.keyword + address.parts) ---
+	if osField == "address" {
+		tokens := tokenize(value)
+		shouldClauses := []map[string]interface{}{
+			// Exact keyword match
+			{
+				"term": map[string]interface{}{
+					"address.keyword": map[string]interface{}{
+						"value":            value,
+						"case_insensitive": true,
+					},
+				},
+			},
+		}
+
+		// Token-level AND match using address.parts (standard analyzer)
+		if len(tokens) > 0 {
+			mustTerms := make([]map[string]interface{}, 0, len(tokens))
+			for _, token := range tokens {
+				mustTerms = append(mustTerms, map[string]interface{}{
+					"term": map[string]interface{}{
+						"address.parts": token,
+					},
+				})
+			}
+			shouldClauses = append(shouldClauses, map[string]interface{}{
+				"bool": map[string]interface{}{"must": mustTerms},
+			})
+		}
+
+		return map[string]interface{}{
+			"bool": map[string]interface{}{
+				"should":               shouldClauses,
+				"minimum_should_match": 1,
+			},
+		}
+	}
+
+	// --- Pincode — search across address fields ---
+	// Uses match queries which are fast (no leading wildcard scans).
+	// Works when pincode appears as a separate token in the address.
+	if osField == "pincode" {
+		digits := regexp.MustCompile(`\D`).ReplaceAllString(value, "")
+		if len(digits) < 4 {
+			return nil
+		}
+		return map[string]interface{}{
+			"bool": map[string]interface{}{
+				"should": []map[string]interface{}{
+					// Match on address.parts (standard analyzer — finds space-separated pincodes)
+					{"match": map[string]interface{}{
+						"address.parts": digits,
+					}},
+					// Match on address base field (address_analyzer)
+					{"match": map[string]interface{}{
+						"address": digits,
+					}},
+					// Also search alt_address
+					{"match": map[string]interface{}{
+						"alt_address.parts": digits,
+					}},
+					{"match": map[string]interface{}{
+						"alt_address": digits,
+					}},
+				},
+				"minimum_should_match": 1,
+			},
+		}
+	}
+
+	// --- Circle — keyword term match ---
+	if osField == "circle" {
+		return map[string]interface{}{
+			"bool": map[string]interface{}{
+				"should": []map[string]interface{}{
+					{"term": map[string]interface{}{osField: valueLower}},
+					{"prefix": map[string]interface{}{osField: valueLower}},
+				},
+				"minimum_should_match": 1,
+			},
+		}
+	}
+
+	// Default: term match
+	return map[string]interface{}{
+		"term": map[string]interface{}{
+			osField: map[string]interface{}{
+				"value":            valueLower,
+				"case_insensitive": true,
+			},
+		},
+	}
+}
+
+// addRegionFilter adds delhi-ncr region filter to the query
+func addRegionFilter(query map[string]interface{}) map[string]interface{} {
+	boolQuery, exists := query["bool"].(map[string]interface{})
+	if !exists {
+		originalQuery := make(map[string]interface{})
+		for k, v := range query {
+			originalQuery[k] = v
+		}
+		boolQuery = make(map[string]interface{})
+		if len(originalQuery) > 0 {
+			boolQuery["must"] = []map[string]interface{}{originalQuery}
+		}
+		query = map[string]interface{}{
+			"bool": boolQuery,
+		}
+	}
+
+	filters, _ := boolQuery["filter"].([]map[string]interface{})
+	filters = append(filters, map[string]interface{}{
+		"term": map[string]interface{}{
+			"region": "delhi-ncr",
+		},
+	})
+	boolQuery["filter"] = filters
+
+	return query
+}
+
+// -----------------------------------------------------------------------
+// OpenSearch execution
+// -----------------------------------------------------------------------
+
+// osDocToFinonePerson converts an OpenSearch _source document to a finone Person model
+func osDocToFinonePerson(raw json.RawMessage) (models.Person, error) {
+	var doc struct {
+		Mobile     string `json:"mobile"`
+		Name       string `json:"name"`
+		Fname      string `json:"fname"`
+		Address    string `json:"address"`
+		AltAddress string `json:"alt_address"`
+		Alt        string `json:"alt"`
+		ID         string `json:"id"`
+		OID        string `json:"oid"`
+		Email      string `json:"email"`
+		Circle     string `json:"circle"`
+		Region     string `json:"region"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return models.Person{}, err
+	}
+
+	masterID := doc.ID
+	if masterID == "" {
+		masterID = doc.OID
+	}
+
+	return models.Person{
+		ID:       doc.OID,
+		MasterID: masterID,
+		Mobile:   doc.Mobile,
+		Name:     doc.Name,
+		FName:    doc.Fname,
+		Address:  doc.Address,
+		Alt:      doc.Alt,
+		Circle:   doc.Circle,
+		Email:    doc.Email,
+	}, nil
+}
+
+// executeOpenSearch runs a search body against OpenSearch and returns parsed hits + total
+func executeOpenSearch(body map[string]interface{}, timeoutSeconds int) ([]models.Person, int, int, error) {
+	bodyJSON, _ := json.Marshal(body)
+	utils.LogInfo(fmt.Sprintf("OpenSearch query: %s", string(bodyJSON)))
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSeconds)*time.Second)
+	defer cancel()
+
+	startTime := time.Now()
+	resp, err := database.OpenSearchAPI.Search(
+		ctx,
+		&opensearchapi.SearchReq{
+			Indices: database.OpenSearchIndices,
+			Body:    bytes.NewReader(bodyJSON),
+			Params: opensearchapi.SearchParams{
+				RequestCache: opensearchapi.ToPointer(true),
+			},
+		},
+	)
+	queryDuration := time.Since(startTime)
+
+	if err != nil {
+		utils.LogError(fmt.Sprintf("OpenSearch query failed after %v", queryDuration), err)
+		return nil, 0, int(queryDuration.Milliseconds()), fmt.Errorf("search failed: %w", err)
+	}
+
+	utils.LogInfo(fmt.Sprintf("OpenSearch completed in %v (took: %dms, total hits: %d)",
+		queryDuration, resp.Took, resp.Hits.Total.Value))
+
+	var persons []models.Person
+	for _, hit := range resp.Hits.Hits {
+		p, err := osDocToFinonePerson(hit.Source)
+		if err != nil {
+			utils.LogError("Failed to parse OpenSearch document", err)
+			continue
+		}
+		persons = append(persons, p)
+	}
+
+	return persons, resp.Hits.Total.Value, int(queryDuration.Milliseconds()), nil
+}
+
+// -----------------------------------------------------------------------
+// Public search methods
+// -----------------------------------------------------------------------
+
+// isValidField checks if the field is valid for searching
+func (s *SearchService) isValidField(field string) bool {
+	validFields := map[string]bool{
+		"mobile":    true,
+		"name":      true,
+		"fname":     true,
+		"address":   true,
+		"alt":       true,
+		"circle":    true,
+		"email":     true,
+		"master_id": true,
+		"id":        true,
+		"oid":       true,
+		"pincode":   true,
+	}
+	return validFields[field]
+}
+
+// Search performs a search operation using OpenSearch
 func (s *SearchService) Search(userID uuid.UUID, req *models.SearchRequest) (*models.SearchResponse, error) {
 	// Check if user has remaining search quota
 	authService := NewAuthService()
@@ -220,23 +577,31 @@ func (s *SearchService) Search(userID uuid.UUID, req *models.SearchRequest) (*mo
 		utils.LogInfo("Cache hit for search")
 		searchID := uuid.New().String()
 
-		// Still log the search but mark it as cached
 		s.logSearch(userID, req, cached.TotalCount, cached.ExecutionTime, searchID, fingerprint)
 
+		start := req.Offset
+		if start > len(cached.Results) {
+			start = len(cached.Results)
+		}
+		end := start + req.Limit
+		if end > len(cached.Results) {
+			end = len(cached.Results)
+		}
+		pageResults := cached.Results[start:end]
+
 		return &models.SearchResponse{
-			Results:       cached.Results,
+			Results:       pageResults,
 			TotalCount:    cached.TotalCount,
 			ExecutionTime: cached.ExecutionTime,
 			SearchID:      searchID,
-			HasMore:       (req.Offset + len(cached.Results)) < cached.TotalCount,
+			HasMore:       (req.Offset + len(pageResults)) < cached.TotalCount,
 		}, nil
 	}
 
-	// Auto-detect mobile number searches and use enhanced mobile search
+	// Auto-detect mobile number searches
 	if s.shouldUseEnhancedMobileSearch(req) {
 		utils.LogInfo("Detected mobile number pattern, using enhanced mobile search")
 
-		// Extract the mobile number from the search
 		mobileNumber := s.extractMobileNumber(req)
 		if mobileNumber != "" {
 			enhancedReq := &models.EnhancedMobileSearchRequest{
@@ -248,11 +613,8 @@ func (s *SearchService) Search(userID uuid.UUID, req *models.SearchRequest) (*mo
 			enhancedResponse, err := s.EnhancedMobileSearch(userID, enhancedReq)
 			if err != nil {
 				utils.LogError("Enhanced mobile search failed, falling back to regular search", err)
-				// Fall back to regular search on error
 			} else {
-				// Convert enhanced response to regular response format
 				allResults := append(enhancedResponse.DirectMatches, enhancedResponse.MasterIDMatches...)
-
 				return &models.SearchResponse{
 					Results:       allResults,
 					TotalCount:    enhancedResponse.TotalCount,
@@ -264,39 +626,44 @@ func (s *SearchService) Search(userID uuid.UUID, req *models.SearchRequest) (*mo
 		}
 	}
 
-	startTime := time.Now()
 	searchID := uuid.New().String()
 
-	// Build the search query
-	query, args := s.buildSearchQuery(req)
+	// Build the OpenSearch query
+	query := s.buildOpenSearchQuery(req)
 
-	utils.LogInfo(fmt.Sprintf("Executing search query: %s", query))
+	// Add region filter
+	query = addRegionFilter(query)
 
-	// Execute the search with reduced timeout
-	var results []models.Person
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	// Pagination
+	size := req.Limit
+	if size <= 0 {
+		size = 1000
+	}
+	if size > 10000 {
+		size = 10000
+	}
+	from := req.Offset
+	if from < 0 {
+		from = 0
+	}
 
-	err = database.ClickHouseDB.Select(ctx, &results, query, args...)
+	searchBody := map[string]interface{}{
+		"query":   query,
+		"size":    size,
+		"from":    from,
+		"_source": true,
+		"timeout": "15s",
+		"sort": []map[string]interface{}{
+			{"_score": map[string]string{"order": "desc"}},
+		},
+	}
+
+	results, totalCount, executionTime, err := executeOpenSearch(searchBody, 30)
 	if err != nil {
 		utils.LogError("Search query failed", err)
 		return nil, fmt.Errorf("search failed: %w", err)
 	}
 
-	// Get total count for pagination (only if needed)
-	totalCount := len(results)
-	if req.Offset > 0 || len(results) == req.Limit {
-		// Only get accurate count if we're paginating
-		totalCount, err = s.getTotalCount(req, ctx)
-		if err != nil {
-			utils.LogError("Failed to get total count", err)
-			totalCount = len(results) // Fallback to current page count
-		}
-	}
-
-	executionTime := int(time.Since(startTime).Milliseconds())
-
-	// Check if there are more results beyond the limit
 	hasMore := (req.Offset + len(results)) < totalCount
 
 	// Cache the result
@@ -305,11 +672,8 @@ func (s *SearchService) Search(userID uuid.UUID, req *models.SearchRequest) (*mo
 	// Check for duplicates
 	isDup, _ := s.isDuplicateSearchToday(userID, fingerprint)
 
-	// Log the search (including fingerprint)
+	// Log the search
 	s.logSearch(userID, req, len(results), executionTime, searchID, fingerprint)
-
-	// Log performance metrics to ClickHouse
-	s.logSearchPerformance(searchID, userID.String(), query, executionTime, len(results))
 
 	// Only increment user's daily search count if we found results and not a duplicate
 	if totalCount > 0 && !isDup {
@@ -331,456 +695,128 @@ func (s *SearchService) Search(userID uuid.UUID, req *models.SearchRequest) (*mo
 	}, nil
 }
 
-// buildSearchQuery constructs the SQL query based on search parameters
-func (s *SearchService) buildSearchQuery(req *models.SearchRequest) (string, []interface{}) {
-	baseQuery := `SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at
-	              FROM finone_search.people WHERE `
+// buildOpenSearchQuery constructs the OpenSearch query from the search request.
+// The frontend sends field_queries like {"name": "john", "mobile": "98765", "email": "foo@bar.com"}
+// and logic "AND" or "OR" to combine them.
+func (s *SearchService) buildOpenSearchQuery(req *models.SearchRequest) map[string]interface{} {
+	var clauses []map[string]interface{}
 
-	conditions := []string{}
-	args := []interface{}{}
-
-	// Check if we have field-specific queries (preferred method)
+	// Primary method: field_queries map (each key → separate field query)
 	if len(req.FieldQueries) > 0 {
-		// Field-specific search: each field has its own query value
 		for field, value := range req.FieldQueries {
 			if !s.isValidField(field) {
 				continue
 			}
-
 			val := strings.TrimSpace(value)
 			if val == "" {
 				continue
 			}
-
-			var condition string
-			if field == "pincode" {
-				c, ok := s.buildFieldCondition("pincode", val, req.MatchType, &args)
-				if ok {
-					conditions = append(conditions, c)
-				}
-				continue
+			q := buildFieldQuery(field, val)
+			if q != nil {
+				clauses = append(clauses, q)
 			}
-
-			if req.MatchType == "full" {
-				condition = fmt.Sprintf("%s = ?", field)
-				args = append(args, val)
-			} else {
-				// Optimize exact mobile/alt lookups when full-length number provided
-				if field == "mobile" || field == "alt" {
-					digits := regexp.MustCompile(`\D`).ReplaceAllString(val, "")
-					if len(digits) >= 10 && len(digits) <= 12 {
-						// Use exact match for performance with bloom filter index
-						condition = fmt.Sprintf("%s = ?", field)
-						args = append(args, digits)
-					} else {
-						condition = fmt.Sprintf("%s ILIKE ?", field)
-						args = append(args, "%"+val+"%")
-					}
-				} else {
-					condition = fmt.Sprintf("%s ILIKE ?", field)
-					args = append(args, "%"+val+"%")
-				}
-			}
-			conditions = append(conditions, condition)
 		}
-	} else if len(req.Fields) > 0 {
-		// Legacy method: single query across multiple fields
+	}
+
+	// Fallback: fields array with single query string
+	if len(clauses) == 0 && len(req.Fields) > 0 && strings.TrimSpace(req.Query) != "" {
 		for _, field := range req.Fields {
 			if !s.isValidField(field) {
 				continue
 			}
-
-			var condition string
-			if req.MatchType == "full" {
-				condition = fmt.Sprintf("%s = ?", field)
-				args = append(args, req.Query)
-			} else {
-				if field == "mobile" || field == "alt" {
-					digits := regexp.MustCompile(`\D`).ReplaceAllString(req.Query, "")
-					if len(digits) >= 10 && len(digits) <= 12 {
-						// Use exact match for performance
-						condition = fmt.Sprintf("%s = ?", field)
-						args = append(args, digits)
-					} else {
-						condition = fmt.Sprintf("%s ILIKE ?", field)
-						args = append(args, "%"+req.Query+"%")
-					}
-				} else {
-					condition = fmt.Sprintf("%s ILIKE ?", field)
-					args = append(args, "%"+req.Query+"%")
-				}
+			q := buildFieldQuery(field, req.Query)
+			if q != nil {
+				clauses = append(clauses, q)
 			}
-			conditions = append(conditions, condition)
 		}
 	}
 
-	// Default search across all fields if no specific fields provided
-	if len(conditions) == 0 {
+	// Fallback: search all fields
+	if len(clauses) == 0 {
 		queryTerm := strings.TrimSpace(req.Query)
 		if queryTerm == "" {
-			// Return empty result for empty queries
-			return baseQuery + "1 = 0", []interface{}{}
+			return map[string]interface{}{
+				"match_none": map[string]interface{}{},
+			}
 		}
 
-		if req.MatchType == "full" {
-			condition := "(mobile = ? OR name = ? OR fname = ? OR address = ? OR alt = ? OR circle = ? OR email = ? OR master_id = ?)"
-			conditions = append(conditions, condition)
-			for i := 0; i < 8; i++ {
-				args = append(args, queryTerm)
+		allFields := []string{"mobile", "name", "fname", "address", "alt", "circle", "email", "id"}
+		for _, field := range allFields {
+			q := buildFieldQuery(field, queryTerm)
+			if q != nil {
+				clauses = append(clauses, q)
 			}
-		} else {
-			// Optimize for likely mobile number searches
-			digits := regexp.MustCompile(`\D`).ReplaceAllString(queryTerm, "")
-			if len(digits) >= 10 && len(digits) <= 12 {
-				// Likely mobile number - prioritize exact mobile/alt matches
-				condition := "(mobile = ? OR alt = ? OR mobile ILIKE ? OR alt ILIKE ? OR name ILIKE ? OR fname ILIKE ? OR address ILIKE ? OR circle ILIKE ? OR email ILIKE ? OR master_id ILIKE ?)"
-				args = append(args, digits, digits, "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%")
-				conditions = append(conditions, condition)
-			} else {
-				// General text search
-				condition := "(name ILIKE ? OR fname ILIKE ? OR address ILIKE ? OR mobile ILIKE ? OR alt ILIKE ? OR circle ILIKE ? OR email ILIKE ? OR master_id ILIKE ?)"
-				queryWithWildcard := "%" + queryTerm + "%"
-				for i := 0; i < 8; i++ {
-					args = append(args, queryWithWildcard)
-				}
-				conditions = append(conditions, condition)
-			}
+		}
+	}
+
+	if len(clauses) == 0 {
+		return map[string]interface{}{
+			"match_none": map[string]interface{}{},
 		}
 	}
 
 	// Join conditions with AND/OR logic
-	logicOperator := "OR"
-	if req.Logic == "AND" {
-		logicOperator = "AND"
+	operator := "should"
+	if strings.ToUpper(req.Logic) == "AND" {
+		operator = "must"
 	}
 
-	whereClause := "(" + strings.Join(conditions, " "+logicOperator+" ") + ")"
-	query := baseQuery + whereClause
-
-	// Add ordering for consistent results (leverage primary key order)
-	query += " ORDER BY mobile, name"
-
-	// Add pagination
-	if req.Limit > 0 {
-		query += fmt.Sprintf(" LIMIT %d", req.Limit)
-	}
-	if req.Offset > 0 {
-		query += fmt.Sprintf(" OFFSET %d", req.Offset)
+	boolQ := map[string]interface{}{
+		operator: clauses,
 	}
 
-	// Optimized settings for faster execution
-	query += " SETTINGS max_threads = 4, optimize_move_to_prewhere = 1, max_execution_time = 30"
+	// For "should" (OR), set minimum_should_match to 1 to require at least one match
+	if operator == "should" {
+		boolQ["minimum_should_match"] = 1
+	}
 
-	// Debug logging
-	utils.LogInfo(fmt.Sprintf("Generated SQL query - Logic: %s, Operator: %s, Conditions: %d",
-		req.Logic, logicOperator, len(conditions)))
-	utils.LogInfo(fmt.Sprintf("SQL Query: %s", query))
-
-	return query, args
+	return map[string]interface{}{
+		"bool": boolQ,
+	}
 }
 
-// getTotalCount gets the total count of matching records without pagination
-func (s *SearchService) getTotalCount(req *models.SearchRequest, ctx context.Context) (int, error) {
-	baseQuery := `SELECT count() FROM finone_search.people WHERE `
-
-	conditions := []string{}
-	args := []interface{}{}
-
-	// Check if we have field-specific queries (preferred method)
-	if len(req.FieldQueries) > 0 {
-		// Field-specific search: each field has its own query value
-		for field, value := range req.FieldQueries {
-			if !s.isValidField(field) {
-				continue
-			}
-
-			val := strings.TrimSpace(value)
-			if val == "" {
-				continue
-			}
-
-			if field == "pincode" {
-				c, ok := s.buildFieldCondition("pincode", val, req.MatchType, &args)
-				if ok {
-					conditions = append(conditions, c)
-				}
-				continue
-			}
-
-			var condition string
-			if req.MatchType == "full" {
-				condition = fmt.Sprintf("%s = ?", field)
-				args = append(args, val)
-			} else {
-				if field == "mobile" || field == "alt" {
-					digits := regexp.MustCompile(`\D`).ReplaceAllString(val, "")
-					if len(digits) >= 10 && len(digits) <= 12 {
-						condition = fmt.Sprintf("%s = ?", field)
-						args = append(args, digits)
-					} else {
-						condition = fmt.Sprintf("%s ILIKE ?", field)
-						args = append(args, "%"+val+"%")
-					}
-				} else {
-					condition = fmt.Sprintf("%s ILIKE ?", field)
-					args = append(args, "%"+val+"%")
-				}
-			}
-			conditions = append(conditions, condition)
-		}
-	} else if len(req.Fields) > 0 {
-		// Legacy method: single query across multiple fields
-		for _, field := range req.Fields {
-			if !s.isValidField(field) {
-				continue
-			}
-
-			var condition string
-			if req.MatchType == "full" {
-				condition = fmt.Sprintf("%s = ?", field)
-				args = append(args, req.Query)
-			} else {
-				if field == "mobile" || field == "alt" {
-					digits := regexp.MustCompile(`\D`).ReplaceAllString(req.Query, "")
-					if len(digits) >= 10 && len(digits) <= 12 {
-						condition = fmt.Sprintf("%s = ?", field)
-						args = append(args, digits)
-					} else {
-						condition = fmt.Sprintf("%s ILIKE ?", field)
-						args = append(args, "%"+req.Query+"%")
-					}
-				} else {
-					condition = fmt.Sprintf("%s ILIKE ?", field)
-					args = append(args, "%"+req.Query+"%")
-				}
-			}
-			conditions = append(conditions, condition)
-		}
-	}
-
-	// Default search across all fields if no specific fields provided
-	if len(conditions) == 0 {
-		queryTerm := strings.TrimSpace(req.Query)
-		if queryTerm == "" {
-			return 0, nil // Empty query returns 0 results
-		}
-
-		if req.MatchType == "full" {
-			condition := "(mobile = ? OR name = ? OR fname = ? OR address = ? OR alt = ? OR circle = ? OR email = ? OR master_id = ?)"
-			conditions = append(conditions, condition)
-			for i := 0; i < 8; i++ {
-				args = append(args, queryTerm)
-			}
-		} else {
-			// Optimize for likely mobile number searches
-			digits := regexp.MustCompile(`\D`).ReplaceAllString(queryTerm, "")
-			if len(digits) >= 10 && len(digits) <= 12 {
-				// Likely mobile number - prioritize exact mobile/alt matches
-				condition := "(mobile = ? OR alt = ? OR mobile ILIKE ? OR alt ILIKE ? OR name ILIKE ? OR fname ILIKE ? OR address ILIKE ? OR circle ILIKE ? OR email ILIKE ? OR master_id ILIKE ?)"
-				args = append(args, digits, digits, "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%", "%"+queryTerm+"%")
-				conditions = append(conditions, condition)
-			} else {
-				// General text search
-				condition := "(name ILIKE ? OR fname ILIKE ? OR address ILIKE ? OR mobile ILIKE ? OR alt ILIKE ? OR circle ILIKE ? OR email ILIKE ? OR master_id ILIKE ?)"
-				queryWithWildcard := "%" + queryTerm + "%"
-				for i := 0; i < 8; i++ {
-					args = append(args, queryWithWildcard)
-				}
-				conditions = append(conditions, condition)
-			}
-		}
-	}
-
-	// Join conditions with AND/OR logic
-	logicOperator := "OR"
-	if req.Logic == "AND" {
-		logicOperator = "AND"
-	}
-
-	whereClause := "(" + strings.Join(conditions, " "+logicOperator+" ") + ")"
-	countQuery := baseQuery + whereClause + " SETTINGS max_threads = 4, optimize_move_to_prewhere = 1, max_execution_time = 30"
-
-	var totalCount uint64
-	err := database.ClickHouseDB.QueryRow(ctx, countQuery, args...).Scan(&totalCount)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get total count: %w", err)
-	}
-
-	return int(totalCount), nil
-}
-
-// getSearchWithinTotalCount gets the total count for search within operations
-func (s *SearchService) getSearchWithinTotalCount(originalReq *models.SearchRequest, withinReq *models.SearchWithinRequest, ctx context.Context) (int, error) {
-	// Build the original query conditions for count
-	originalConditions := []string{}
-	args := []interface{}{}
-
-	// Handle original request fields and query
-	if len(originalReq.FieldQueries) > 0 {
-		// Field-specific search: each field has its own query value
-		for field, value := range originalReq.FieldQueries {
-			if !s.isValidField(field) {
-				continue
-			}
-			if strings.TrimSpace(value) == "" {
-				continue
-			}
-
-			var condition string
-			if originalReq.MatchType == "full" {
-				condition = fmt.Sprintf("%s = ?", field)
-				args = append(args, value)
-			} else {
-				condition = fmt.Sprintf("%s ILIKE ?", field)
-				args = append(args, "%"+value+"%")
-			}
-			originalConditions = append(originalConditions, condition)
-		}
-	} else if len(originalReq.Fields) > 0 {
-		// Legacy method: single query across multiple fields
-		for _, field := range originalReq.Fields {
-			if !s.isValidField(field) {
-				continue
-			}
-
-			var condition string
-			if originalReq.MatchType == "full" {
-				condition = fmt.Sprintf("%s = ?", field)
-				args = append(args, originalReq.Query)
-			} else {
-				condition = fmt.Sprintf("%s ILIKE ?", field)
-				args = append(args, "%"+originalReq.Query+"%")
-			}
-			originalConditions = append(originalConditions, condition)
-		}
-	} else {
-		// Default search across all text fields for original query
-		if originalReq.MatchType == "full" {
-			condition := "(mobile = ? OR name = ? OR fname = ? OR address = ? OR alt = ? OR circle = ? OR email = ? OR master_id = ?)"
-			originalConditions = append(originalConditions, condition)
-			for i := 0; i < 8; i++ {
-				args = append(args, originalReq.Query)
-			}
-		} else {
-			condition := "(mobile ILIKE ? OR name ILIKE ? OR fname ILIKE ? OR address ILIKE ? OR alt ILIKE ? OR circle ILIKE ? OR email ILIKE ? OR master_id ILIKE ?)"
-			originalConditions = append(originalConditions, condition)
-			queryWithWildcard := "%" + originalReq.Query + "%"
-			for i := 0; i < 8; i++ {
-				args = append(args, queryWithWildcard)
-			}
-		}
-	}
-
-	// Build the new search conditions for count
-	newConditions := []string{}
-	fields := withinReq.Fields
-	if len(fields) == 0 {
-		fields = []string{"mobile", "name", "fname", "address", "alt", "circle", "email", "master_id"}
-	}
-
-	for _, field := range fields {
-		if !s.isValidField(field) {
-			continue
-		}
-
-		var condition string
-		if withinReq.MatchType == "full" {
-			condition = fmt.Sprintf("%s = ?", field)
-			args = append(args, withinReq.Query)
-		} else {
-			condition = fmt.Sprintf("%s ILIKE ?", field)
-			args = append(args, "%"+withinReq.Query+"%")
-		}
-		newConditions = append(newConditions, condition)
-	}
-
-	// Combine conditions with proper logic
-	originalLogic := "OR"
-	if originalReq.Logic == "AND" {
-		originalLogic = "AND"
-	}
-
-	baseCountQuery := `SELECT count() FROM finone_search.people WHERE `
-
-	// Original conditions
-	originalWhere := "(" + strings.Join(originalConditions, " "+originalLogic+" ") + ")"
-
-	// New conditions (always OR for within search fields)
-	newWhere := "(" + strings.Join(newConditions, " OR ") + ")"
-
-	// Combine with AND (search within means both conditions must be true)
-	combinedWhere := originalWhere + " AND " + newWhere
-
-	countQuery := baseCountQuery + combinedWhere + " SETTINGS optimize_move_to_prewhere=1, allow_experimental_analyzer=1"
-
-	var totalCount uint64
-	err := database.ClickHouseDB.QueryRow(ctx, countQuery, args...).Scan(&totalCount)
-	if err != nil {
-		return 0, fmt.Errorf("failed to get search within total count: %w", err)
-	}
-
-	return int(totalCount), nil
-}
-
-// isValidField checks if the field is valid for searching
-func (s *SearchService) isValidField(field string) bool {
-	validFields := map[string]bool{
-		"mobile":    true,
-		"name":      true,
-		"fname":     true,
-		"address":   true,
-		"alt":       true,
-		"circle":    true,
-		"email":     true,
-		"master_id": true,
-		// virtual field
-		"pincode": true,
-	}
-	return validFields[field]
-}
-
-// GetPersonByID retrieves a person by ID
+// GetPersonByID retrieves a person by ID using OpenSearch
 func (s *SearchService) GetPersonByID(id string) (*models.Person, error) {
-	var person models.Person
-	query := `SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at
-	          FROM finone_search.people WHERE id = ?`
+	query := map[string]interface{}{
+		"bool": map[string]interface{}{
+			"should": []map[string]interface{}{
+				{"term": map[string]interface{}{"id": strings.ToLower(id)}},
+				{"term": map[string]interface{}{"oid": strings.ToLower(id)}},
+			},
+			"minimum_should_match": 1,
+		},
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	query = addRegionFilter(query)
 
-	err := database.ClickHouseDB.QueryRow(ctx, query, id).ScanStruct(&person)
+	searchBody := map[string]interface{}{
+		"query":   query,
+		"size":    1,
+		"_source": true,
+	}
+
+	results, _, _, err := executeOpenSearch(searchBody, 10)
 	if err != nil {
 		return nil, fmt.Errorf("person not found: %w", err)
 	}
 
-	return &person, nil
+	if len(results) == 0 {
+		return nil, fmt.Errorf("person not found")
+	}
+
+	return &results[0], nil
 }
 
-// GetSearchStats returns search statistics
+// GetSearchStats returns search statistics from PostgreSQL
 func (s *SearchService) GetSearchStats() (map[string]interface{}, error) {
 	stats := make(map[string]interface{})
 
-	// Total records count
-	var totalRecords uint64
-	countQuery := `SELECT count() FROM finone_search.people`
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	err := database.ClickHouseDB.QueryRow(ctx, countQuery).Scan(&totalRecords)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get total records: %w", err)
-	}
-
-	stats["total_records"] = totalRecords
-
-	// Recent search performance
-	perfQuery := `SELECT avg(execution_time_ms), count()
-	              FROM finone_search.search_performance
-	              WHERE timestamp >= now() - INTERVAL 1 DAY`
-
+	perfQuery := `SELECT COALESCE(AVG(execution_time_ms), 0), COUNT(*)
+	              FROM searches
+	              WHERE search_time >= NOW() - INTERVAL '1 day'`
 	var avgTime float64
 	var searchCount int64
-	err = database.ClickHouseDB.QueryRow(ctx, perfQuery).Scan(&avgTime, &searchCount)
+	err := database.PostgresDB.QueryRow(perfQuery).Scan(&avgTime, &searchCount)
 	if err != nil {
 		utils.LogError("Failed to get search performance stats", err)
 		avgTime = 0
@@ -790,12 +826,25 @@ func (s *SearchService) GetSearchStats() (map[string]interface{}, error) {
 	stats["avg_search_time_ms"] = avgTime
 	stats["searches_last_24h"] = searchCount
 
+	countBody := map[string]interface{}{
+		"query": addRegionFilter(map[string]interface{}{
+			"match_all": map[string]interface{}{},
+		}),
+		"size":             0,
+		"track_total_hits": true,
+	}
+	_, totalRecords, _, err := executeOpenSearch(countBody, 10)
+	if err != nil {
+		utils.LogError("Failed to count total records", err)
+		totalRecords = 0
+	}
+	stats["total_records"] = totalRecords
+
 	return stats, nil
 }
 
-// logSearch logs a search operation to PostgreSQL, embedding the fingerprint into the stored JSON
+// logSearch logs a search operation to PostgreSQL
 func (s *SearchService) logSearch(userID uuid.UUID, req *models.SearchRequest, resultCount, executionTime int, searchID, fingerprint string) {
-	// Marshal req then inject fingerprint in a deterministic way
 	raw, _ := json.Marshal(req)
 	var obj map[string]interface{}
 	_ = json.Unmarshal(raw, &obj)
@@ -811,40 +860,17 @@ func (s *SearchService) logSearch(userID uuid.UUID, req *models.SearchRequest, r
 	}
 }
 
-// logSearchPerformance logs search performance to ClickHouse
-func (s *SearchService) logSearchPerformance(queryID, userID, queryText string, executionTime, resultCount int) {
-	query := `INSERT INTO finone_search.search_performance
-	          (query_id, user_id, query_text, execution_time_ms, result_count)
-	          VALUES (?, ?, ?, ?, ?)`
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	err := database.ClickHouseDB.Exec(ctx, query, queryID, userID, queryText, executionTime, resultCount)
-
-	if err != nil {
-		utils.LogError("Failed to log search performance", err)
-	}
-}
-
-// isMobileNumber checks if a string looks like a mobile number (10-12 digits)
+// isMobileNumber checks if a string looks like a mobile number
 func (s *SearchService) isMobileNumber(query string) bool {
-	// Remove any non-digit characters for validation
 	cleaned := regexp.MustCompile(`\D`).ReplaceAllString(query, "")
-	// Check if it's 10-12 digits (typical mobile number length)
 	return len(cleaned) >= 10 && len(cleaned) <= 12
 }
 
-// shouldUseEnhancedMobileSearch determines if the search should use enhanced mobile search
 func (s *SearchService) shouldUseEnhancedMobileSearch(req *models.SearchRequest) bool {
-	// If explicitly requested
 	if req.EnhancedMobile {
 		return true
 	}
 
-	// If field-specific queries are present, enhanced search should only trigger
-	// when there is exactly one non-empty field and it is a mobile-like value in
-	// either "mobile" or "alt".
 	if len(req.FieldQueries) > 0 {
 		nonEmptyCount := 0
 		mobileOnly := true
@@ -866,12 +892,9 @@ func (s *SearchService) shouldUseEnhancedMobileSearch(req *models.SearchRequest)
 		if nonEmptyCount == 1 && mobileOnly && mobileLike {
 			return true
 		}
-		// Multiple fields or non-mobile fields involved → do not use enhanced
 		return false
 	}
 
-	// If legacy Fields are used, only trigger when all fields are in {mobile, alt}
-	// AND the main query looks like a mobile number
 	if len(req.Fields) > 0 {
 		onlyMobileFields := true
 		for _, f := range req.Fields {
@@ -886,7 +909,6 @@ func (s *SearchService) shouldUseEnhancedMobileSearch(req *models.SearchRequest)
 		return false
 	}
 
-	// If no explicit fields provided, allow enhanced when the whole query is a mobile number
 	if s.isMobileNumber(req.Query) {
 		return true
 	}
@@ -894,9 +916,7 @@ func (s *SearchService) shouldUseEnhancedMobileSearch(req *models.SearchRequest)
 	return false
 }
 
-// extractMobileNumber extracts the mobile number from the search request
 func (s *SearchService) extractMobileNumber(req *models.SearchRequest) string {
-	// Check field-specific queries first
 	if len(req.FieldQueries) > 0 {
 		for field, value := range req.FieldQueries {
 			if (field == "mobile" || field == "alt") && s.isMobileNumber(value) {
@@ -905,7 +925,6 @@ func (s *SearchService) extractMobileNumber(req *models.SearchRequest) string {
 		}
 	}
 
-	// Check main query
 	if s.isMobileNumber(req.Query) {
 		return req.Query
 	}
@@ -913,9 +932,8 @@ func (s *SearchService) extractMobileNumber(req *models.SearchRequest) string {
 	return ""
 }
 
-// EnhancedMobileSearch performs an enhanced mobile number search
+// EnhancedMobileSearch performs an enhanced mobile number search using OpenSearch
 func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.EnhancedMobileSearchRequest) (*models.EnhancedMobileSearchResponse, error) {
-	// Check if user has remaining search quota
 	authService := NewAuthService()
 	canSearch, err := authService.CheckSearchLimit(userID)
 	if err != nil {
@@ -929,15 +947,9 @@ func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.Enhan
 	startTime := time.Now()
 	searchID := uuid.New().String()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second) // Reduced timeout
-	defer cancel()
-
-	// Clean the mobile number (remove any non-digit characters)
 	cleanedMobile := regexp.MustCompile(`\D`).ReplaceAllString(req.MobileNumber, "")
-
 	utils.LogInfo(fmt.Sprintf("Enhanced mobile search for: %s (cleaned: %s)", req.MobileNumber, cleanedMobile))
 
-	// Check cache first
 	cacheKey := fmt.Sprintf("enhanced_mobile_%s_%d_%d", cleanedMobile, req.Limit, req.Offset)
 	if cached, found := s.getCachedResult(cacheKey); found {
 		utils.LogInfo("Cache hit for enhanced mobile search")
@@ -954,132 +966,201 @@ func (s *SearchService) EnhancedMobileSearch(userID uuid.UUID, req *models.Enhan
 		}, nil
 	}
 
-	// Optimized single query with UNION ALL for better performance
-	optimizedQuery := `
-		WITH mobile_matches AS (
-			SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at, 1 as match_type
-			FROM finone_search.people
-			WHERE mobile = ?
-			UNION ALL
-			SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at, 2 as match_type
-			FROM finone_search.people
-			WHERE alt = ?
-			UNION ALL
-			SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at, 3 as match_type
-			FROM finone_search.people
-			WHERE mobile LIKE ? AND mobile != ?
-			UNION ALL
-			SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at, 4 as match_type
-			FROM finone_search.people
-			WHERE alt LIKE ? AND alt != ?
-		)
-		SELECT id, master_id, mobile, name, fname, address, alt, circle, email, created_at, updated_at
-		FROM mobile_matches
-		ORDER BY match_type, mobile, name
-		LIMIT ? OFFSET ?
-		SETTINGS max_threads = 4, optimize_move_to_prewhere = 1
-	`
+	// Step 1: Direct mobile/alt search
+	initialQuery := map[string]interface{}{
+		"bool": map[string]interface{}{
+			"should": []map[string]interface{}{
+				{"term": map[string]interface{}{"mobile": strings.ToLower(cleanedMobile)}},
+				{"term": map[string]interface{}{"alt": strings.ToLower(cleanedMobile)}},
+			},
+			"minimum_should_match": 1,
+		},
+	}
+	initialQuery = addRegionFilter(initialQuery)
 
-	// Prepare query arguments
+	initialBody := map[string]interface{}{
+		"query":   initialQuery,
+		"size":    100,
+		"_source": true,
+		"timeout": "5s",
+	}
+
+	initialResults, _, _, err := executeOpenSearch(initialBody, 10)
+	if err != nil {
+		return nil, fmt.Errorf("initial mobile search failed: %w", err)
+	}
+
+	if len(initialResults) == 0 {
+		executionTime := int(time.Since(startTime).Milliseconds())
+		return &models.EnhancedMobileSearchResponse{
+			DirectMatches:        []models.Person{},
+			MasterIDMatches:      []models.Person{},
+			TotalDirectMatches:   0,
+			TotalMasterIDMatches: 0,
+			TotalCount:           0,
+			ExecutionTime:        executionTime,
+			SearchID:             searchID,
+			HasMore:              false,
+			MasterIDs:            []string{},
+		}, nil
+	}
+
+	// Step 2: Collect master IDs from initial results
+	masterIDSet := make(map[string]bool)
+	for _, p := range initialResults {
+		if p.MasterID != "" && isValidMasterID(p.MasterID) {
+			masterIDSet[p.MasterID] = true
+		}
+	}
+
+	// Step 3: Build comprehensive query
+	var comprehensiveShould []map[string]interface{}
+
+	// Direct mobile/alt with boost
+	comprehensiveShould = append(comprehensiveShould, map[string]interface{}{
+		"bool": map[string]interface{}{
+			"should": []map[string]interface{}{
+				{"term": map[string]interface{}{"mobile": strings.ToLower(cleanedMobile)}},
+				{"term": map[string]interface{}{"alt": strings.ToLower(cleanedMobile)}},
+			},
+			"minimum_should_match": 1,
+			"boost":                3.0,
+		},
+	})
+
+	// Master ID searches
+	if len(masterIDSet) > 0 {
+		for masterID := range masterIDSet {
+			comprehensiveShould = append(comprehensiveShould, map[string]interface{}{
+				"bool": map[string]interface{}{
+					"should": []map[string]interface{}{
+						{"term": map[string]interface{}{"id": masterID}},
+						{"prefix": map[string]interface{}{"id": masterID}},
+					},
+					"minimum_should_match": 1,
+					"boost":                2.0,
+				},
+			})
+		}
+	} else {
+		// Fallback: name+fname+address matching
+		for _, doc := range initialResults {
+			if doc.Name != "" && doc.FName != "" && doc.Address != "" {
+				comprehensiveShould = append(comprehensiveShould, map[string]interface{}{
+					"bool": map[string]interface{}{
+						"must": []map[string]interface{}{
+							{"term": map[string]interface{}{"name.keyword": map[string]interface{}{"value": strings.TrimSpace(doc.Name), "case_insensitive": true}}},
+							{"term": map[string]interface{}{"fname.keyword": map[string]interface{}{"value": strings.TrimSpace(doc.FName), "case_insensitive": true}}},
+						},
+						"boost": 1.5,
+					},
+				})
+			}
+		}
+	}
+
+	comprehensiveQuery := map[string]interface{}{
+		"bool": map[string]interface{}{
+			"should":               comprehensiveShould,
+			"minimum_should_match": 1,
+		},
+	}
+	comprehensiveQuery = addRegionFilter(comprehensiveQuery)
+
 	pageLimit := req.Limit
 	if pageLimit <= 0 {
 		pageLimit = 1000
 	}
 
-	args := []interface{}{
-		cleanedMobile,       // Exact mobile match
-		cleanedMobile,       // Exact alt match
-		"%" + cleanedMobile, // Mobile ends with
-		cleanedMobile,       // Exclude exact (already covered)
-		"%" + cleanedMobile, // Alt ends with
-		cleanedMobile,       // Exclude exact (already covered)
-		pageLimit + 1,       // Fetch one extra to check hasMore
-		req.Offset,
+	comprehensiveSize := 500
+	if len(masterIDSet) == 0 {
+		comprehensiveSize = 100
 	}
 
-	var results []models.Person
-	err = database.ClickHouseDB.Select(ctx, &results, optimizedQuery, args...)
+	comprehensiveBody := map[string]interface{}{
+		"query":            comprehensiveQuery,
+		"size":             comprehensiveSize,
+		"track_total_hits": comprehensiveSize,
+		"_source":          true,
+		"timeout":          "10s",
+		"sort": []map[string]interface{}{
+			{"_score": map[string]string{"order": "desc"}},
+		},
+	}
+
+	allResults, totalCount, _, err := executeOpenSearch(comprehensiveBody, 15)
 	if err != nil {
-		utils.LogError("Optimized mobile search failed", err)
-		return nil, fmt.Errorf("optimized mobile search failed: %w", err)
+		utils.LogError("Comprehensive search failed, using initial results", err)
+		allResults = initialResults
+		totalCount = len(initialResults)
 	}
 
-	// Check if there are more results
-	hasMore := len(results) > pageLimit
-	if hasMore {
-		results = results[:pageLimit] // Trim to requested size
+	// Apply pagination
+	start := req.Offset
+	if start > len(allResults) {
+		start = len(allResults)
 	}
-
-	// Fast count query - only count if we need it for pagination
-	totalCount := len(results)
-	if req.Offset == 0 && !hasMore {
-		// If this is the first page and we don't have more, total = results
-		totalCount = len(results)
-	} else {
-		// Need accurate count for pagination
-		countQuery := `
-			SELECT count() FROM (
-				SELECT 1 FROM finone_search.people WHERE mobile = ?
-				UNION ALL
-				SELECT 1 FROM finone_search.people WHERE alt = ?
-				UNION ALL
-				SELECT 1 FROM finone_search.people WHERE mobile LIKE ? AND mobile != ?
-				UNION ALL
-				SELECT 1 FROM finone_search.people WHERE alt LIKE ? AND alt != ?
-			) SETTINGS max_threads = 4
-		`
-		var count uint64
-		countArgs := []interface{}{
-			cleanedMobile,
-			cleanedMobile,
-			"%" + cleanedMobile,
-			cleanedMobile,
-			"%" + cleanedMobile,
-			cleanedMobile,
-		}
-
-		err = database.ClickHouseDB.QueryRow(ctx, countQuery, countArgs...).Scan(&count)
-		if err != nil {
-			utils.LogError("Count query failed, using fallback", err)
-			totalCount = req.Offset + len(results)
-			if hasMore {
-				totalCount++
-			}
-		} else {
-			totalCount = int(count)
-		}
+	end := start + pageLimit
+	if end > len(allResults) {
+		end = len(allResults)
 	}
+	pageResults := allResults[start:end]
+	hasMore := end < totalCount
 
 	executionTime := int(time.Since(startTime).Milliseconds())
 
-	// Cache the result
-	s.setCachedResult(cacheKey, results, totalCount, executionTime)
+	s.setCachedResult(cacheKey, allResults, totalCount, executionTime)
 
-	// Log performance metrics
-	s.logSearchPerformance(searchID, userID.String(), "ENHANCED_MOBILE_OPTIMIZED", executionTime, len(results))
-
-	// Increment daily search count only if we found results
 	if totalCount > 0 {
 		if err := authService.IncrementSearchCount(userID); err != nil {
 			utils.LogError("Failed to increment search count", err)
 		}
 	}
 
+	masterIDs := make([]string, 0, len(masterIDSet))
+	for id := range masterIDSet {
+		masterIDs = append(masterIDs, id)
+	}
+
 	return &models.EnhancedMobileSearchResponse{
-		DirectMatches:        results,
-		MasterIDMatches:      []models.Person{}, // Simplified for performance
+		DirectMatches:        pageResults,
+		MasterIDMatches:      []models.Person{},
 		TotalDirectMatches:   totalCount,
 		TotalMasterIDMatches: 0,
 		TotalCount:           totalCount,
 		ExecutionTime:        executionTime,
 		SearchID:             searchID,
 		HasMore:              hasMore,
-		MasterIDs:            []string{},
+		MasterIDs:            masterIDs,
 	}, nil
 }
 
-func (s *SearchService) BuildSearchSQL(req *models.SearchRequest, limit int, offset int) (string, []interface{}) {
-	// Create a shallow copy so we don't mutate the original request
+// isValidMasterID checks if a Master ID is valid (not masked with 'x' characters)
+func isValidMasterID(masterID string) bool {
+	if masterID == "" {
+		return false
+	}
+	xCount := 0
+	totalChars := len(masterID)
+	for _, ch := range strings.ToLower(masterID) {
+		if ch == 'x' {
+			xCount++
+		}
+	}
+	if totalChars > 0 && float64(xCount)/float64(totalChars) > 0.3 {
+		return false
+	}
+	if totalChars >= 4 && strings.HasPrefix(strings.ToLower(masterID), "xxxx") {
+		return false
+	}
+	if totalChars < 8 {
+		return false
+	}
+	return true
+}
+
+// BuildSearchQuery builds and returns the OpenSearch query body (used by export handler)
+func (s *SearchService) BuildSearchQuery(req *models.SearchRequest, limit int, offset int) (map[string]interface{}, error) {
 	r := *req
 	if limit > 0 {
 		r.Limit = limit
@@ -1087,15 +1168,36 @@ func (s *SearchService) BuildSearchSQL(req *models.SearchRequest, limit int, off
 	if offset >= 0 {
 		r.Offset = offset
 	}
-	return s.buildSearchQuery(&r)
+
+	query := s.buildOpenSearchQuery(&r)
+	query = addRegionFilter(query)
+
+	size := r.Limit
+	if size <= 0 {
+		size = 25
+	}
+	from := r.Offset
+	if from < 0 {
+		from = 0
+	}
+
+	return map[string]interface{}{
+		"query":   query,
+		"size":    size,
+		"from":    from,
+		"_source": true,
+		"timeout": "15s",
+		"sort": []map[string]interface{}{
+			{"_score": map[string]string{"order": "desc"}},
+		},
+	}, nil
 }
 
-// SearchWithin performs a search within previous search results (simplified for performance)
+// SearchWithin performs a search within previous search results
 func (s *SearchService) SearchWithin(userID uuid.UUID, req *models.SearchWithinRequest) (*models.SearchResponse, error) {
 	startTime := time.Now()
 	searchID := uuid.New().String()
 
-	// For now, convert to a regular search for simplicity and performance
 	searchReq := &models.SearchRequest{
 		Query:     req.Query,
 		Fields:    req.Fields,
@@ -1110,7 +1212,6 @@ func (s *SearchService) SearchWithin(userID uuid.UUID, req *models.SearchWithinR
 		return nil, err
 	}
 
-	// Update the search ID to the new one
 	response.SearchID = searchID
 	response.ExecutionTime = int(time.Since(startTime).Milliseconds())
 
