@@ -1,12 +1,25 @@
-import type { NextRequest } from "next/server";
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 
-export function proxy(request: NextRequest) {
-  // Get the pathname of the request (e.g. /, /protected)
+// Skip static assets and internal paths
+function isInternalPath(pathname: string): boolean {
+  if (
+    pathname.startsWith("/_next") ||
+    pathname.startsWith("/api/") ||
+    pathname.startsWith("/favicon")
+  ) {
+    return true;
+  }
+  if (/\.(?:css|js|png|jpg|jpeg|gif|svg|ico|woff2?|ttf|map)$/.test(pathname)) {
+    return true;
+  }
+  return false;
+}
+
+export async function proxy(request: NextRequest) {
   const path = request.nextUrl.pathname;
 
   // Skip for static assets
-  if (path.match(/\.(png|jpg|jpeg|gif|svg|css|js|ico|woff|woff2|ttf|eot)$/)) {
+  if (isInternalPath(path)) {
     return NextResponse.next();
   }
 
@@ -18,12 +31,10 @@ export function proxy(request: NextRequest) {
   if (path.startsWith("/admin")) {
     const isAdminLogin = path === "/admin/login";
 
-    // If trying to access admin login and already authenticated, redirect to admin dashboard
     if (isAdminLogin && adminToken) {
       return NextResponse.redirect(new URL("/admin/dashboard", request.url));
     }
 
-    // If trying to access protected admin routes without token, redirect to admin login
     if (!isAdminLogin && !adminToken) {
       return NextResponse.redirect(new URL("/admin/login", request.url));
     }
@@ -31,11 +42,7 @@ export function proxy(request: NextRequest) {
     return NextResponse.next();
   }
 
-  // Define public paths that don't require authentication
-  const isPublicPath =
-    path === "/" || path === "/user/login" || path === "/register";
-
-  // Handle home page "/" - check admin first, then user
+  // Handle home page "/" - redirect to dashboard if logged in
   if (path === "/") {
     if (adminToken) {
       return NextResponse.redirect(new URL("/admin/dashboard", request.url));
@@ -43,11 +50,10 @@ export function proxy(request: NextRequest) {
     if (userToken) {
       return NextResponse.redirect(new URL("/user/dashboard", request.url));
     }
-    // If no tokens, stay on home page
     return NextResponse.next();
   }
 
-  // If trying to access user login and already authenticated, redirect to appropriate dashboard
+  // If trying to access user login and already authenticated
   if (path === "/user/login") {
     if (adminToken) {
       return NextResponse.redirect(new URL("/admin/dashboard", request.url));
@@ -55,28 +61,27 @@ export function proxy(request: NextRequest) {
     if (userToken) {
       return NextResponse.redirect(new URL("/user/dashboard", request.url));
     }
-    // If no tokens, stay on login page
     return NextResponse.next();
   }
 
-  // If the path is protected and user is not authenticated, redirect to login
-  if (!isPublicPath && !userToken) {
+  // Register page is public
+  if (path === "/register") {
+    return NextResponse.next();
+  }
+
+  // Protected user routes - require token
+  if (path.startsWith("/user") && !userToken) {
     return NextResponse.redirect(new URL("/user/login", request.url));
   }
 
   return NextResponse.next();
 }
 
-// Configure which paths should be protected
 export const config = {
   matcher: [
-    /*
-     * Match all request paths except for the ones starting with:
-     * - api (API routes)
-     * - _next/static (static files)
-     * - _next/image (image optimization files)
-     * - favicon.ico (favicon file)
-     */
-    "/((?!api|_next/static|_next/image|favicon.ico).*)",
+    "/",
+    "/admin/:path*",
+    "/user/:path*",
+    "/register",
   ],
 };
